@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "targets": [
+    {
+      "version": "<target-version-A>",
+      "decl": "/path/to/decl-A.tsv",
+      "tickets": [
+        "/path/to/tickets/A__mod1.json"
+      ]
+    },
+    {
+      "version": "<target-version-B>",
+      "decl": "/path/to/decl-B.tsv",
+      "tickets": [
+        "/path/to/tickets/B__mod1.json"
+      ]
+    }
+  ]
+}

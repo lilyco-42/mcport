@@ -41,6 +41,8 @@ bash demo/run.sh
 | `tools/bridge26.py` | 版本择一 + 目标感知重定位 + S 行父类链，产 26.x 专用表 | `python3 tools/bridge26.py --bridge a.tsv --bridge b.tsv --src-decl s.tsv --dst-decl d.tsv --out m.tsv` |
 | `tools/loader.py` | 版本无关的装载编排机：分代 → 选装配路线 → 符号预言机 → fail-loud | `python3 tools/loader.py --repo . --target REAL-X.jar --mod a.jar --check` |
 | `tools/test_loader.py` | 零外部数据的 49 断言自包含回归 | `python3 tools/test_loader.py` |
+| `tools/relocate.py` | 严格 C 行类迁移补充：把 MISSING 里同名类换包机械解析出来 | `python3 tools/relocate.py --spec spec.json --out-dir gen/` |
+| `tools/test_relocate.py` | 零外部数据的 27 断言自包含回归 | `python3 tools/test_relocate.py` |
 
 HostBridge 规则表每行 6 列（TAB 分隔）：`owner / oldName / oldDesc / virtual或static / adapterClass / adapterMethod`。
 适配器描述符由工具自动推导，人只写普通 Java 语义适配方法；`<init>`/`<clinit>`、重复签名、空表一律 fail-loud。
@@ -88,7 +90,7 @@ bash pipeline-26.sh 1.21.1 26.1 /path/to/mods
 26.x 是更低的 78.7% 静态天花板且附带额外硬缺口。
 详见 REPORT.md §4、§7（诚实的边界声明）、§8（26.x 攻坚）、§9（宿主侧兼容桥 / SIGCHG）、
 §11（双 agent 组合）、§12（JRE 25 × 真实 26.1 类）、§13（真实 jar 语义漂移量化）与
-§14（版本无关的装载编排机）。
+§14（版本无关的装载编排机）与 §15（严格 C 行类迁移）。
 
 ## 可选：真实 26.1 类 × JRE 25（REPORT §12）
 
@@ -151,7 +153,29 @@ python3 tools/loader.py --repo . --target /path/to/REAL-26.1.jar \
 的 P1–P6 路由与 S1–S7 装配/预言机场景；`RESULT ALL_OK 49`。制品需自备，
 仓库与发布包不含 client jar、映射表或 mod 二进制（见 `data/NOTICE-mappings.md`）。
 **边界**：不启动 Fabric / 真实客户端，不覆盖 Bedrock、native、Mixin refmap / `@Shadow`、
-反射字符串、已删除成员与语义漂移；「全平台全版本任意 mod 都能跑」仍不可达。详见 REPORT §14.7。
+反射字符串、已删除成员与语义漂移；「全平台全版本任意 mod 都能跑」仍不可达。详见 REPORT §14.7 / §15.6。
+
+## 严格 C 行类迁移补充（REPORT §15）
+
+8 份热门 mod 工单里 173 条 SIGCHG + 477 条 MISSING 仍需人工；§15 只攻其中一类
+「老 owner 类整包搬走、同名同描述符成员还在」的 MISSING。`tools/relocate.py`
+按三级严格判据（类级唯一同名投票 → 整张 C 行重映射描述符 → 目标直接声明校验）
+生成**仅 C 行**的 `supplement.tsv`，再交给 `RemapTool` 真的改字节码，
+最后对目标声明表**不带 `--map`** 复测。
+
+```bash
+python3 tools/test_relocate.py                            # 27 断言，零外部数据
+python3 tools/relocate.py --spec /work/spec.json --out-dir /work/gen
+```
+
+本机实跑：1.21.11 生成 4 条 C 行 / 接受 29 条，26.1 生成 1 条 C 行 / 接受 19 条，
+**合计 48 条** MISSING → 静态 RESOLVE；另有 6 条诚实转成 SIGCHG，
+13 条不同简单名的危险偶合 0 洗白。复测后 8 份工单为 179 SIGCHG + 423 MISSING，
+**48 条只是符号可解析候选，不证明行为等价或能跑**。聚合数字见
+`data/relocate-summary.csv`，口径与踩坑见 `data/relocate-README.md`，
+输入模板见 `data/relocate-spec.example.json`（仅路径占位符）。
+关键决策：不改 `LinkCheck`、不新增 RELOCATE 桶（其 `CLS_RENAME` 是死代码），
+旧五字段 JSON 完全兼容；详见 REPORT §15.5。
 
 ## 构建
 
@@ -160,6 +184,7 @@ mkdir -p build lib
 # 需要 ASM 9.9（读 Java 25 / class major 69 必需）
 javac -nowarn -cp 'lib/*' -d build java/mcport/*.java   # 含 §13 的 BodyHash
 python3 tools/test_loader.py                            # §14 编排机 49 断言回归
+python3 tools/test_relocate.py                          # §15 严格迁移 27 断言回归
 ```
 
 > **CI 注意**：若 `LANG`/`LC_ALL` 为空，JDK 用 `ANSI_X3.4-1968` 解码路径，中文目录会让 `javac`

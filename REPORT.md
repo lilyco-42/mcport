@@ -311,7 +311,7 @@ entityculling / fabric-api / reeses-sodium-options / noisium，全部从 Modrint
 
 ```
 mcport-跨版本兼容/
-├── REPORT.md                        本报告（§8 26.x 攻坚 / §13 语义漂移 / §14 装载编排机）
+├── REPORT.md                        本报告（§8 26.x / §13 语义漂移 / §14 装载编排机 / §15 严格 C 行迁移）
 ├── README.md                        上手
 ├── pipeline.sh                      常规版本流水线：声明表→映射表→扫描→重映射→校验→复测→工单
 ├── pipeline-26.sh                   26.x 专用流水线：ProGuard 建桥→继承/Mixin 改写→复测
@@ -334,6 +334,8 @@ mcport-跨版本兼容/
 │   ├── drift_align.py               §13 官方 ProGuard 真实名身份对齐 + 聚合
 │   ├── loader.py                    §14 版本无关装载编排机（分类 / 装配 / 预言机 / fail-loud）
 │   ├── test_loader.py               §14 零外部数据 49 断言自包含回归
+│   ├── relocate.py                  §15 严格 C 行类迁移补充生成器
+│   ├── test_relocate.py             §15 零外部数据 27 断言自包含回归
 │   └── report.py                    JSON 报告 → 可执行迁移工单 markdown
 ├── demo/                            端到端最小复现（无需下载 MC）
 │   ├── run.sh                       A 正常 / B 炸 / C agent 救活 / D fail-loud
@@ -355,10 +357,13 @@ mcport-跨版本兼容/
     ├── drift-spec.example.json      §13 复现模板（路径占位符）
     ├── loader-scenarios.csv         §14 13 组实跑聚合（P1–P6 / S1–S7）
     ├── loader-README.md             §14 聚合口径与不分发声明
+    ├── relocate-summary.csv         §15 两版本严格迁移聚合
+    ├── relocate-README.md           §15 口径 / 合规 / 踩坑
+    ├── relocate-spec.example.json   §15 复现模板（路径占位符）
     └── NOTICE-mappings.md           ProGuard 映射许可提示（禁止分发完整未修改映射）
 ```
 
-复现（五步）：
+复现（六步）：
 
 ```bash
 # 1) 端到端演示：证明"炸"和"救活"（30 秒，无需 MC）
@@ -377,6 +382,9 @@ bash pipeline-26.sh 1.21.1 26.1 /path/to/mods
 
 # 5) §14 装载编排机自包含回归（零外部数据、零 Mojang 字节、零网络）
 python3 tools/test_loader.py
+
+# 6) §15 严格 C 行迁移自包含回归（合成 decl/工单，27 断言）
+python3 tools/test_relocate.py
 ```
 
 退出码约定：**0 = 全部可自动处理；2 = 存在 SIGCHG/MISSING，需人工介入。**
@@ -1019,6 +1027,131 @@ python3 tools/loader.py --repo . --target /path/to/REAL-26.1.jar \
   --check --tickets /tmp/tickets --out plan.json --emit-script launch.sh
 ```
 
+## 15. 严格 C 行类迁移：把 MISSING 里「同名类换包」机械解析出来
+
+### 15.1 需求边界与 /lyco ACQUIRE
+
+§14 的装载编排机只保证「能自动做对的部分自动做、做不到的部分 fail-loud」；
+4 个热门 mod × 2 个目标版本的 8 份 LinkCheck 工单仍剩 **173 条 SIGCHG + 477 条 MISSING** 需人工。
+本章只问一个更窄的问题：MISSING 里「老 owner 类整包搬走、但同名同描述符成员还在」的那部分，
+能不能在不猜语义的前提下机械修掉？
+
+/lyco ACQUIRE：`gh search repos` 五个近义词
+（`minecraft mapping class relocation tool` / `fabric intermediary class move remapper` /
+`mixin refmap generator` / `minecraft auto bridge generator` / `asm class relocation minecraft`）
+每个 `--limit 5` 全部 0 hits，连续两轮空。硬约束是**不分发 Mojang client jar / 官方映射 /
+第三方 mod 二进制**，且任何不确定必须 fail-loud；现成 API-diff 工具（§2 / §13 的 japicmp / revapi / clirr）
+只比签名、不处理「类换包 + 常量池整体改名」的字节码改写。故 build 最小自研生成器 `tools/relocate.py`。
+
+### 15.2 工单形态与三级严格判据
+
+477 条 MISSING 按注释粗分：`# owner class gone` 192 条、老 owner 仍在 decl 但成员消失 285 条。
+在「老 owner 不在目标 decl + 目标 decl 中存在唯一同名同描述符候选」的 57 条里，
+**44 条 simple 名相同**（几乎全是 `com/mojang/blaze3d/platform/GlStateManager` 及内部类
+→ `com/mojang/blaze3d/opengl/GlStateManager` 换包），
+**13 条 simple 名不同**，是危险偶合：`GuiGraphics.bufferSource` → `RenderBuffers`、
+`FastColor`$ARGB32.multiply` → `ARGB`、`BufferUploader.draw` → `RenderType`、
+`HoverEvent`$ItemStackInfo.getItemStack` → `Display`$ItemDisplay` 等。
+同名同描述符**不是**语义证据，所以不同简单名一律拒绝。
+
+`tools/relocate.py`（纯标准库，`schema=1`，`--spec` / `--out-dir`）执行三级判据：
+
+1. **类级唯一同名投票**：只取 MISSING 里老 owner 不在目标 decl 的引用，按
+   `(name, desc)` 找目标 decl 的直接声明 owner；仅当 `simple(old) == simple(new)`
+   且候选唯一才生成 `C` 行。不同简单名、歧义、`<init>`/`<clinit>` 直接拒绝。
+2. **整张 C 行重映射描述符**：把方法参数与字段类型里的 `L<oldOwner>;` token 全表替换
+   （5 轮收敛），否则 `BLEND` / `DEPTH` 这类指向内部类的字段会漏改。
+3. **目标直接声明校验**：`(newOwner, name, mappedDesc)` 必须命中目标 decl 的 `M/F` 行；
+   成员在新类里也被删了就拒绝。
+
+输出 `supplement.tsv`（**仅 C 行**）、`accepted.tsv`、`stats.json`、`summary.csv`
+到调用方 `--out-dir`，不写入仓库。`tools/test_relocate.py` 用 tempfile 合成 decl/工单，
+零 Mojang 字节、零网络，**27 断言全绿**，覆盖字段 desc 重映射、内部类对、确定性重跑、
+不同简单名 / 歧义 / 构造拒绝。
+
+### 15.3 两版本实测（8 份真实工单 + 2 份真实目标声明表）
+
+| 目标 | decl 类 | 工单 | MISSING | parse_fail | 严格 C 行 | 接受 | owner_exists | 无严格 C 行 | 搬过去成员也没了 | 不同简单名拒绝 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1.21.11 | 10291 | 4 | 220 | 0 | 4 | **29** | 141 | 41 | 9 | 6 |
+| 26.1 | 10682 | 4 | 257 | 0 | 1 | **19** | 144 | 83 | 11 | 24 |
+| 合计 | — | 8 | 477 | 0 | 5 | **48** | 285 | 124 | 20 | 30 |
+
+**合计严格机械可修 48 条**，不是 Round 2 粗估的 44 条（粗估没做整张 C 行描述符重映射，
+漏了 8 个内部类字段）。两版本 `ambiguous=0`。C 行共 5 对：1.21.11 为
+`platform/GlStateManager` 主类 + 3 个内部类 → `opengl/...`；26.1 只有主类，
+去混淆后的真实名空间里没有同名内部类候选，故 `BLEND`/`DEPTH` 落进
+`no_exact_mapped_decl`。`owner_exists` 是老类仍在 decl、属别的失效机制，不归迁移。
+聚合数字见 `data/relocate-summary.csv`，口径见 `data/relocate-README.md`。
+
+### 15.4 端到端复测：RemapTool 改字节码后，无 --map 复测
+
+链路：`relocate.py` 产 C 行补充 → `javac` 全量 →
+`RemapTool --map supplement.tsv` 对 4 个已重映射 mod jar 再改常量池 owner / 描述符 / 类型引用 →
+`LinkCheck --decl <目标 decl> --mod <fixed.jar> --json`（**不带 `--map`**）。
+
+| 目标 | total | RESOLVE | SIGCHG | MISSING |
+| --- | --- | --- | --- | --- |
+| 1.21.11 before → after | 1190 | 843 → **872** | 99 → 101 | 220 → **189** |
+| 26.1 before → after | 1190 | 831 → **850** | 74 → 78 | 257 → **234** |
+| 合计 before → after | 2380 | 1674 → **1722** | 173 → **179** | 477 → **423** |
+
+按「C 行规范化引用 + 忽略 `#` 注释 + 集合归并」复核桶转移：
+1.21.11 `MISSING→RESOLVE 29` / `MISSING→SIGCHG 2`；
+26.1 `MISSING→RESOLVE 19` / `MISSING→SIGCHG 4`。
+那 6 条没有洗白：`_clear(IZ)V`、`_texImage2D(IIIIIIIILjava/nio/IntBuffer;)V`、
+`BLEND`/`DEPTH` 在新类里同名但描述符也变了（或内部类 C 行缺失），
+LinkCheck 诚实地重新判成需人工。7 类危险关键字样本复测仍全部 MISSING（4 / 9 条），
+**13 条不同简单名误配 0 洗白**。EXTERNAL 56 条不变；2380 − 56 = 2324 判定数前后守恒。
+
+### 15.5 关键技术转折：为什么不改 LinkCheck、不新增 RELOCATE 桶
+
+`java/mcport/LinkCheck.java:41` 的 `CLS_RENAME` 与 `:301`
+`if (p[0].equals("C")) CLS_RENAME.put(p[1], p[2])` 是全文件仅有的两处引用；
+`:257-274 classify()` 在 `!CLASSES.contains(owner) && !SUPER.containsKey(owner)` 时
+直接判 `MISSING # owner class gone`，完全不查 `CLS_RENAME` —— 这是死代码缺陷。
+但 §14.6 已经证明 26.x 的 `bridge-26.tsv` 绝不能当 `LinkCheck --map`
+（`loadMap` 只读 C/M/F、不读 S 行、不整体换描述符命名空间；早期 C5 直接喂得到
+`resolve=4 / ceiling=2.6` 的虚报）。
+
+正确路线**不是**给预言机加一个 `RELOCATE` 桶，而是**先把字节码真的改对、再复测**：
+`relocate.py` 产 C 行补充 → `RemapTool` 走 `Mapping.mapClass` 改常量池 →
+LinkCheck 看到的是已改好的新 owner，自然判 RESOLVE。于是省掉了原设想的
+「改 `main` 汇总 / `writeJson` details / `analyze` 数组 / `batch` CSV /
+`tools/loader.py` 五处 + 新增桶」；旧五字段工单 JSON 完全向后兼容，
+`tools/test_loader.py` 49 断言与 demo A–F 未回归。
+若将来要让 `--map` 直接吃 C 行，必须先修 `classify()`，并同步 §14.6 的口径。
+
+### 15.6 本章收窄了什么、没有收窄什么
+
+收窄：MISSING 里 **48 条「同类换包 + 成员仍在」** 从人工列表变成机械可解析、可复现、
+且拒绝规则明确的 C 行补充；「不能机械修」的边界从粗口径变成 4 类可执行判据
+（不同简单名 / 歧义 / 构造 / 目标成员已删）。
+
+仍没有收窄：8 份工单复测后仍有 **179 条 SIGCHG + 423 条 MISSING** 需人工；
+173 条 SIGCHG 的参数/返回类型转换是语义，不能无脑生成桥；477 条 MISSING 的主体、
+§13 的 85.8%–95.4% 指纹全同判不干净区间、Mixin refmap / `@Shadow` 声明名、
+反射字符串、`<init>`、真实客户端 / Fabric / LWJGL 端到端、26.x 需 JDK 25，全部未解决。
+**48 条只是符号可解析候选，不证明行为等价，更不证明能跑。**
+「全平台全版本任意 mod 都能跑」仍不可达；本章只是把编排机里可自动做对的那部分又推进了一格。
+
+### 15.7 复现与踩坑（自备制品，脚本不下载不入库）
+
+```bash
+python3 tools/test_relocate.py
+python3 tools/relocate.py --spec /work/spec.json --out-dir /work/gen
+javac -nowarn -cp 'lib/*' -d build java/mcport/*.java
+java -cp 'build:lib/*' mcport.RemapTool --map /work/gen/1.21.11/supplement.tsv --in /work/mod.jar --out /work/fixed.jar
+java -cp 'build:lib/*' mcport.LinkCheck --decl /path/to/decl-1.21.11.tsv --mod /work/fixed.jar --json /work/fixed.json
+```
+
+* 第一版逐条独立匹配用了只认 `(...)` 结尾的方法正则，漏掉 `()V` / `(I)I` 带返回类型
+  与字段描述符，477 条里 404 条 parse fail；方法必须 `^(.+?)\.([^.(]+)(\(.*\).*)$`、字段单独一支。
+* 逐条独立匹配会漏掉字段 desc 里的旧包 token；改成**先类级投票生成整张 C 行、再重映射描述符**才救回内部类字段。
+* 把候选全集打印出来会截断输出（26.1 的 `<init>()V` 有 1765 个不同简单名候选），只打印计数。
+* 端到端脚本里 `assert delta[sigchg]==0` 断言写太严而失败：6 条诚实地转成 SIGCHG 属预期，非工具 bug。
+
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -1035,4 +1168,6 @@ JEP 451 / Java SE 17 `java.lang.instrument.Instrumentation` 文档；工单计�
 与 `tools/drift_align.py` 官方 ProGuard 真实名身份对齐实跑（2026-11-14，参数化版重跑逐字段一致；
 `data/drift-summary.csv` 为聚合结果，输入字节与映射均不分发）。
 §14 来自 `tools/loader.py` / `tools/test_loader.py` 在 5 个真实 client jar、4 个真实 mod 上的
-P1–P6 / S1–S7 实跑与 49 条自包含断言（2026-11-15；制品目录仅符号链接，输入字节不分发）。*
+P1–P6 / S1–S7 实跑与 49 条自包含断言（2026-11-15；制品目录仅符号链接，输入字节不分发）。
+§15 来自 `tools/relocate.py` / `tools/test_relocate.py` 在 4 个热门 mod × 2 个目标版本的 8 份真实
+LinkCheck 工单、两张真实目标声明表上的生成 + RemapTool + 无 `--map` 复测实跑（2026-11-15；48 条接受、13 条误配未洗白；输入字节与映射均不分发，聚合数字见 `data/relocate-summary.csv`）。*

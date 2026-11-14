@@ -47,6 +47,11 @@ https://asm.ow2.io/ ，许可原文 https://asm.ow2.io/license.html ：
   `decl-*.tsv` / `map-*.tsv` / `bridge-*.tsv` 与 mod jar；`tools/test_loader.py` 用 tempfile
   合成等价假输入。两者都不下载、不复制、不内嵌 Mojang 类字节、官方映射或第三方 mod 字节码；
   生成的 plan / 工单只留在 `--out` / `--tickets` 指定目录。
+* **严格 C 行迁移 §15 的输入与产物**：`tools/relocate.py` 只在运行时读调用方自备的
+  `decl-*.tsv` 与 LinkCheck 工单 JSON；`supplement.tsv` / `accepted.tsv` / `stats.json` /
+  `summary.csv` 只写进 `--out-dir`，不下载、不复制、不内嵌 Mojang 类字节、官方映射或第三方
+  mod 字节码。`tools/test_relocate.py` 只合成等价假输入。`data/relocate-summary.csv` 与
+  `data/relocate-README.md` 仅含聚合数字与口径，`data/relocate-spec.example.json` 仅含路径占位符。
 * **热门 Fabric mod 二进制**（Sodium / Iris / ImmediatelyFast / YACL /
   Xaero's Minimap / fabric-language-kotlin 等）：仅在本机 `/tmp` 下用于
   静态链接测量，**未复制进本仓库、未上传到任何下载通道**。其许可包含

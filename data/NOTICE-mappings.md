@@ -30,4 +30,10 @@
 §14 的 `tools/loader.py` 同理：用 `--artifacts` 指向自备目录，按 `decl-<ver>.tsv` /
 `map-<src>-<dst>.tsv` / `bridge-<ver>.tsv` 命名查找，缺表即 `MISSING_ARTIFACT` 拒绝装配；
 `tools/test_loader.py` 只合成等价的空/短表做回归，仓库与发布包均不含真实映射行。
+§15 的 `tools/relocate.py` 同理：`--spec` 指向自备声明表与工单，输出目录只写
+`supplement.tsv`（仅 C 行）/ `accepted.tsv` / `stats.json` / `summary.csv`，
+这些都**不进仓库、不进发布包**；`data/` 只保留 `relocate-summary.csv` 这类纯聚合数字、
+`relocate-README.md` 口径说明与 `relocate-spec.example.json` 路径占位符。
+`tools/test_relocate.py` 用 tempfile 合成等价假输入，仓库与发布包均不含真实映射行。
+
 ASM 9.9 为 BSD-3-Clause；本工具链不与任何 GPL 项目有代码往来。
