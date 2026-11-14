@@ -58,6 +58,13 @@ https://asm.ow2.io/ ，许可原文 https://asm.ow2.io/license.html ：
   只写进 `--out-dir`，不下载、不复制、不内嵌 Mojang 类字节、官方映射或第三方 mod 字节码。
   `tools/test_bridgegen.py` 只合成等价假输入。`data/bridgegen-summary.csv` 与
   `data/bridgegen-README.md` 仅含聚合数字与口径，`data/bridgegen-spec.example.json` 仅路径占位符。
+ * **字符串表面 §17 的输入与产物**：`tools/stringsurface.py` 只在运行时读调用方自备的
+   `decl-*.tsv` / `map-*.tsv` 与已重映射 mod jar；`triage.tsv` / `stats.json` /
+   `fixed/*.jar` / `summary.csv` 只写进 `--out-dir`，不下载、不复制、不内嵌 Mojang 类字节、
+   官方映射或第三方 mod 字节码。`tools/test_stringsurface.py` 只合成等价假输入。
+   `data/stringsurface-summary.csv` / `stringsurface-README.md` 仅聚合数字与口径，
+   `data/stringsurface-spec.example.json` 仅路径占位符。
+
 * **热门 Fabric mod 二进制**（Sodium / Iris / ImmediatelyFast / YACL /
   Xaero's Minimap / fabric-language-kotlin 等）：仅在本机 `/tmp` 下用于
   静态链接测量，**未复制进本仓库、未上传到任何下载通道**。其许可包含

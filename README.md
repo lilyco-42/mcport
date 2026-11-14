@@ -46,6 +46,8 @@ bash demo/run.sh
 | `java/mcport/CallKind.java` | 从 mod 字节码恢复 Methodref 的 invoke opcode，补工单缺失维度 | `java -cp `build:lib/*` mcport.CallKind --in a.jar --out kinds.tsv` |
 | `tools/bridgegen.py` | SIGCHG/MISSING 人工桥工作台：候选规则 + 抛异常 adapter 骨架，零自动修复 | `python3 tools/bridgegen.py --spec spec.json --out-dir gen/` |
 | `tools/test_bridgegen.py` | 零外部数据的 61 断言自包含回归 | `python3 tools/test_bridgegen.py` |
+| `tools/stringsurface.py` | LDC / refmap 第二姓名表面精确审计，默认只报告，`--rewrite` 才写 fixed jar | `python3 tools/stringsurface.py --spec spec.json --out-dir gen/` |
+| `tools/test_stringsurface.py` | 零外部数据的 78 断言自包含回归 | `python3 tools/test_stringsurface.py` |
 
 HostBridge 规则表每行 6 列（TAB 分隔）：`owner / oldName / oldDesc / virtual或static / adapterClass / adapterMethod`。
 适配器描述符由工具自动推导，人只写普通 Java 语义适配方法；`<init>`/`<clinit>`、重复签名、空表一律 fail-loud。
@@ -87,13 +89,13 @@ bash pipeline-26.sh 1.21.1 26.1 /path/to/mods
 > 判 EXTERNAL 不计入分母（REPORT.md §5 第 15 条）。`26.1 = 0.0% / 3820` 是早期只收
 > `net/minecraft/` 的历史口径，保留在 §1/§4 作对照，不与本表数字相减。
 > **78.7% 只代表符号能解析，不代表能跑**：Mixin refmap/@Shadow 声明名、反射字符串、
-> 目标版本已删除的成员、语义漂移、真实客户端端到端，全部未解决（REPORT.md §8.5）。
+> 目标版本已删除的成员、语义漂移、真实客户端端到端，仍未彻底解决；§17 已把 Mixin refmap / 反射 LDC 纳入精确审计与 fail-loud，但不等于运行期语义已解决（REPORT.md §8.5 / §17）。
 
 **所以："任意版本都有效"不可达。** 常规版本可达的是"~80% 自动 + ~20% 精确列出 + 100% fail-loud"；
 26.x 是更低的 78.7% 静态天花板且附带额外硬缺口。
 详见 REPORT.md §4、§7（诚实的边界声明）、§8（26.x 攻坚）、§9（宿主侧兼容桥 / SIGCHG）、
 §11（双 agent 组合）、§12（JRE 25 × 真实 26.1 类）、§13（真实 jar 语义漂移量化）与
-§14（版本无关的装载编排机）、§15（严格 C 行类迁移）与 §16（零自动修复的人工桥工作台）。
+§14（版本无关的装载编排机）、§15（严格 C 行类迁移）与 §16（零自动修复的人工桥工作台）、§17（字符串姓名表面审计）。
 
 ## 可选：真实 26.1 类 × JRE 25（REPORT §12）
 
@@ -200,6 +202,25 @@ python3 tools/bridgegen.py --spec /work/spec.json --out-dir /work/gen --classes 
 路径模板见 `data/bridgegen-spec.example.json`。**四条候选不是补丁，不代表行为等价或能跑。**
 详见 REPORT §16.6。
 
+## 字符串姓名表面（REPORT §17）
+
+`RemapTool` 原样复制非 `.class` 资源，ASM 不改裸 String，Mixin refmap 与反射字符串是第二盲区。
+§17 用 `tools/stringsurface.py` 精确解析 `CONSTANT_String` 与非 assets JSON：8 个真实 jar 共
+**7288 次字符串出现**，其中 **70 条可精确改名**、**150 条 fail-loud**（`exit 2`）；
+显式 `--rewrite` 只改 6 个真实条目（1 个 refmap 值 + 4 个 LDC `.class` + 1 个 refmap JSON）。
+4 个改写 class 的 `javap` / `major 65` / `unzip -t` 全通过，改写前后 `LinkCheck.details` 与
+`MixinCheck` 输出逐字节相同——**只改字符串，不改符号链接口径**。
+
+```bash
+python3 tools/test_stringsurface.py                            # 78 断言，零外部数据
+python3 tools/stringsurface.py --spec /work/spec.json --out-dir /work/audit
+python3 tools/stringsurface.py --spec /work/spec.json --out-dir /work/rw --rewrite
+```
+
+聚合见 `data/stringsurface-summary.csv`，口径 / 踩坑见 `data/stringsurface-README.md`，
+路径模板见 `data/stringsurface-spec.example.json`。**符号改名不证明运行期行为等价、更不证明能跑。**
+详见 REPORT §17.6。
+
 ## 构建
 
 ```bash
@@ -209,6 +230,7 @@ javac -nowarn -cp 'lib/*' -d build java/mcport/*.java   # 含 §13 的 BodyHash
 python3 tools/test_loader.py                            # §14 编排机 49 断言回归
 python3 tools/test_relocate.py                          # §15 严格迁移 27 断言回归
 python3 tools/test_bridgegen.py                         # §16 人工桥工作台 61 断言回归
+python3 tools/test_stringsurface.py                     # §17 字符串表面 78 断言回归
 ```
 
 > **CI 注意**：若 `LANG`/`LC_ALL` 为空，JDK 用 `ANSI_X3.4-1968` 解码路径，中文目录会让 `javac`

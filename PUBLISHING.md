@@ -5,7 +5,7 @@
 | 内容 | 位置 |
 | --- | --- |
 | 源码、文档、测量数据 | GitHub: https://github.com/lilyco-42/mcport |
-| 打包分发件 `mcport-0.1.7-dist.tar.gz` | Cloudflare R2 桶 `lain42-dl`，key `downloads/mcport/0.1.7/mcport-0.1.7-dist.tar.gz` |
+| 打包分发件 `mcport-0.1.8-dist.tar.gz` | Cloudflare R2 桶 `lain42-dl`，key `downloads/mcport/0.1.8/mcport-0.1.8-dist.tar.gz` |
 | 下载入口 | https://lain42.top/downloads/ → 条目 `mcport`（经 `dl.lilyco42.top` 的 R2 签名票据通道加速，遵循站点积分规则） |
 | R2 目录 | `catalog/downloads.json`（Worker `lain42-dl-gate` 运行时读取，60s 缓存） |
 
@@ -36,12 +36,16 @@
   `tools/bridgegen.py` 在 §15 复测后的 8 份真实工单 + 2 份真实声明表 + 8 个已重映射 mod jar
   上分桶 602 条引用，得到 4 条唯一人工候选规则与 `auto_fixed=0`；`data/bridgegen-summary.csv`
   仅聚合数字，callkind / triage / adapter 骨架均不随包提供。
+* §17 的 `tools/test_stringsurface.py` 零外部数据 78 断言全绿；`tools/stringsurface.py` 在
+  §15 复测后的 8 个真实 mod jar 上 audit / rewrite 实跑：7288 次字符串出现、70 条可精确改名、
+  150 条 fail-loud、6 个真实条目改写，4 个改写 class 经 `javap` / `unzip -t` / LinkCheck 复测；
+  `data/stringsurface-summary.csv` 仅聚合数字，triage / fixed jar 均不随包提供。
 
-## 边界（务必阅读 REPORT.md §7 / §12 / §13 / §14 / §15 / §16）
+## 边界（务必阅读 REPORT.md §7 / §12 / §13 / §14 / §15 / §16 / §17）
 
 静态符号可解析率 **不等于** 能在真实客户端运行。同名同签名语义漂移无法被
 静态工具**彻底**判定（demo E2 用 42→6 实测展示；§13 给出 4.6%–14.2% 的可检测下界，
-但 85.8%–95.4% 指纹全同区间仍判不干净）；Mixin refmap、反射字符串、真实客户端端到端验证均未覆盖。
+但 85.8%–95.4% 指纹全同区间仍判不干净）；Mixin refmap 与反射字符串已由 §17 做精确审计和 fail-loud 改写，但不覆盖运行期语义；真实客户端端到端验证仍未覆盖。
 HostBridge 只解决「旧签名能链接上」这一机械层，`<init>`、已被删除的成员（MISSING）、
 需要真实游戏状态的语义，均不在其能力范围内。
 双 agent 组合虽经最小复现验证可行（REPORT §11），但必须 `-Dmcport.only` 限定改写范围，
@@ -54,6 +58,8 @@ HostBridge 只解决「旧签名能链接上」这一机械层，`<init>`、已�
 179 条 SIGCHG + 423 条 MISSING 需人工；13 条不同简单名偶合 fail-loud 拒绝，静态可解析率仍不等于能跑。
 §16 明确 **零自动修复**：4 条候选规则与抛异常 adapter 骨架只是人工起点，
 `--emit-rules` 需显式人工确认；数值 widening / void 丢弃仍是语义变化，不证明任何 mod 能跑。
+§17 只改**符号字符串**：70 条可精确改名、150 条逐条 fail-loud、6 个真实条目改写；
+改写后符号预言机工单不变，但 `assets/` 文案、反射 / 序列化 / 配置 schema 的运行期语义仍未解决。
 本工具不做「任意版本都有效」或「全平台全版本任意 mod 都能跑」的承诺。
 
 ## 回滚

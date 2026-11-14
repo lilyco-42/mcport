@@ -42,4 +42,9 @@
 `bridgegen-summary.csv` 这类纯聚合数字、`bridgegen-README.md` 口径说明与
 `bridgegen-spec.example.json` 路径占位符。`tools/test_bridgegen.py` 用 tempfile 合成等价假输入。
 
+
+§17 的 `tools/stringsurface.py` 同理：`--spec` 指向自备声明表、映射表与 mod jar；
+`triage.tsv`（含逐条字符串与类名）、`stats.json`、`fixed/*.jar` 都**不进仓库、不进发布包**；
+`data/` 只保留 `stringsurface-summary.csv` 这类纯聚合数字、`stringsurface-README.md` 口径说明
+与 `stringsurface-spec.example.json` 路径占位符。`tools/test_stringsurface.py` 用 tempfile 合成等价假输入。
 ASM 9.9 为 BSD-3-Clause；本工具链不与任何 GPL 项目有代码往来。

@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "targets": [
+    {
+      "version": "<target-version-A>",
+      "decl": "/path/to/decl-A.tsv",
+      "map": "/path/to/map-A.tsv",
+      "jars": [
+        "/path/to/mod-a.jar",
+        "/path/to/mod-b.jar"
+      ]
+    },
+    {
+      "version": "<target-version-B>",
+      "decl": "/path/to/decl-B.tsv",
+      "map": "/path/to/map-B.tsv",
+      "jars": [
+        "/path/to/mod-a.jar",
+        "/path/to/mod-b.jar"
+      ]
+    }
+  ]
+}

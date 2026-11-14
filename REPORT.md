@@ -311,7 +311,7 @@ entityculling / fabric-api / reeses-sodium-options / noisium，全部从 Modrint
 
 ```
 mcport-跨版本兼容/
-├── REPORT.md                        本报告（§8 26.x / §13 语义漂移 / §14 装载编排机 / §15 严格 C 行迁移 / §16 人工桥工作台）
+├── REPORT.md                        本报告（§8 26.x / §13 语义漂移 / §14 装载编排机 / §15 严格 C 行迁移 / §16 人工桥工作台 / §17 字符串姓名表面）
 ├── README.md                        上手
 ├── pipeline.sh                      常规版本流水线：声明表→映射表→扫描→重映射→校验→复测→工单
 ├── pipeline-26.sh                   26.x 专用流水线：ProGuard 建桥→继承/Mixin 改写→复测
@@ -339,6 +339,8 @@ mcport-跨版本兼容/
 │   ├── test_relocate.py             §15 零外部数据 27 断言自包含回归
 │   ├── bridgegen.py                 §16 SIGCHG/MISSING 人工桥工作台（零自动修复）
 │   ├── test_bridgegen.py            §16 零外部数据 61 断言自包含回归
+│   ├── stringsurface.py           §17 LDC / refmap 字符串表面精确审计（默认只报告）
+│   ├── test_stringsurface.py       §17 零外部数据 78 断言自包含回归
 │   └── report.py                    JSON 报告 → 可执行迁移工单 markdown
 ├── demo/                            端到端最小复现（无需下载 MC）
 │   ├── run.sh                       A 正常 / B 炸 / C agent 救活 / D fail-loud
@@ -366,10 +368,13 @@ mcport-跨版本兼容/
     ├── bridgegen-summary.csv        §16 两版本 602 条工单分桶聚合
     ├── bridgegen-README.md          §16 口径 / 合规 / 踩坑
     ├── bridgegen-spec.example.json  §16 复现模板（路径占位符）
+    ├── stringsurface-summary.csv   §17 两版本 21 列字符串表面聚合
+    ├── stringsurface-README.md     §17 口径 / 合规 / 踩坑
+    ├── stringsurface-spec.example.json  §17 复现模板（路径占位符）
     └── NOTICE-mappings.md           ProGuard 映射许可提示（禁止分发完整未修改映射）
 ```
 
-复现（七步）：
+复现（八步）：
 
 ```bash
 # 1) 端到端演示：证明"炸"和"救活"（30 秒，无需 MC）
@@ -394,6 +399,9 @@ python3 tools/test_relocate.py
 
 # 7) §16 人工桥工作台自包含回归（合成 decl/工单/callkind，61 断言）
 python3 tools/test_bridgegen.py
+
+# 8) §17 字符串姓名表面自包含回归（合成 class / refmap / jar，78 断言）
+python3 tools/test_stringsurface.py
 ```
 
 退出码约定：**0 = 全部可自动处理；2 = 存在 SIGCHG/MISSING，需人工介入。**
@@ -1277,6 +1285,118 @@ python3 tools/bridgegen.py --spec /work/spec.json --out-dir /work/gen --classes 
 
 
 
+## 17. 字符串姓名表面：LDC / refmap 的精确审计与重写（2026-11-15）
+
+### 17.1 需求边界与 /lyco ACQUIRE
+
+§15 / §16 只处理字节码里的符号引用（Methodref / Fieldref / 描述符 / Mixin 注解）。
+但 `RemapTool` 对非 `.class` 条目一律 `zout.write(data)` 原样复制，ASM
+`Remapper.mapValue` 对裸 String 也原样放行；`MixinCheck` 只数注解字符串。于是
+**refmap JSON、`Class.forName` 风格 LDC、配置里的点分类名**构成第二个姓名表面，
+五字段 LinkCheck 工单完全看不到它。本机四个已重映射热门 mod 的资源逐条哈希比对
+证明：`RemapTool` / §15 重映射**没有改动任何非 class 资源**。
+
+/lyco ACQUIRE 五个 gh 近义词 `minecraft reflection string remapper` /
+`mixin refmap remapper tool` / `class forName mod remapper` /
+`minecraft string constant remap` / `fabric refmap analyzer` 全部 0 hits（连续两轮空）；
+japicmp / revapi / clirr 只比签名不读字符串常量，fit < 50%。硬约束「不分发 Mojang
+client jar / 映射 / 第三方 mod 二进制 + 猜不出来就 fail-loud」→ build 最小自研
+`tools/stringsurface.py`。本节不承诺「修好 mod」，只把第二表面里**能精确验证**的
+改名做掉、把不能的逐条列出。
+
+### 17.2 三个契约
+
+* **工单缺维度**：LinkCheck `writeJson` 只留 `owner|name|desc`，看不到字符串。
+* **常量池**：只改 `CONSTANT_String`(8) 指向的 Utf8；若同一 Utf8 还被
+  `CONSTANT_Class` / `NameAndType` 引用（shared），追加新 Utf8 槽并只改
+  `CONSTANT_String.name_index`，绝不碰共享名字；重建后恢复原 class major。
+  Modified UTF-8 / 非 ASCII 改名一律 `DECODE_FAIL` 不改字节。
+* **目标可验证**：类 token 只有当老名字不在目标 decl、C 行唯一映射到**目标 decl 里
+  存在**的新 owner 才改；`Lowner;name(desc)ret` 形式的成员还要联合映射 owner /
+  成员名 / 描述符 token，且 `(newOwner,newName,newDesc)` 必须在目标 decl 声明或
+  继承命中。映射表 M/F 键是 `(owner,desc,name)`，decl 表是 `(owner,name,desc)`，
+  两套 BFS 必须分开（§17.5 第 2 条）。
+
+### 17.3 8 个真实 jar 的表面分布
+
+输入：§15 复测后的 4 个已重映射热门 mod × 2 个目标版本（1.21.11 / 26.1），两张
+真实 decl 与两张真实 map（1.21.11 为 C=0 的 identity 表，26.1 为 intermediary→真实名桥）。
+每版本 jars=4 / class_entries=1140 / resource_entries=13 / string_occurrences=3644 /
+unique_strings=2606 / no_game_token=3510。
+
+| 版本 | 精确可改 | 已在目标 | unresolved | 映射目标缺失 | 成员目标缺失 | 改写条目 |
+|---|---|---|---|---|---|---|
+| 1.21.11 | 2（成员） | 36 | 96 | 0 | 0 | 1 |
+| 26.1 | 68（10 类 + 58 成员） | 12 | 54 | 33 | 10 | 5 |
+| 合计 | 70 | 48 | 150 | 33 | 10 | 6 |
+
+1.21.11 的 2 条是 `xaerominimap.refmap.json` 里 `method_18096(...)` → `method_76795(...)`
+的两处副本；26.1 的 68 条含 4 个 `.class` 里的 LDC（`Lnet/minecraft/class_276;` →
+`Lcom/mojang/blaze3d/pipeline/RenderTarget;` 等 10 条）与 refmap 的 58 条成员联合映射。
+`unresolved` 150 条（含 `MAPPED_TARGET_MISSING` 33 + `MEMBER_TARGET_MISSING` 10）
+**全部保持原字节**并进 `triage.tsv`，进程 `exit 2`。聚合见 `data/stringsurface-summary.csv`。
+
+### 17.4 结构验证：改了字符串，不改符号链接
+
+* 26.1 的 4 个改写 `.class` 逐个 `javap -verbose` rc=0、`major version: 65`、LDC 出现
+  新真实名；两个 `fixed/*.jar` 的 `unzip -t` 全通过，refmap JSON 可重新 `json.loads`。
+* 对 26.1 原 jar 与 fixed jar 复跑 `LinkCheck --decl decl-26.1.tsv`：五字段工单
+  `details` 数组**逐字节相同**（`total=768 / resolve=578 / sigchg=49 / missing=137`），
+  唯一差异是 JSON 里的 `mod` 路径字段。`MixinCheck` 输出亦相同
+  （`mixinClasses=37 annotationStrings=110`）。证明字符串表面改写**不污染**
+  §15 / §16 的符号预言机口径。
+* audit 与 rewrite 两次运行的 `triage.tsv` 哈希一致（确定性）。
+* 1.21.11 的 fixed refmap 含新名 `method_76795`、不含旧名 `method_18096`。
+
+### 17.5 五个真 bug（均已修复并写进 78 断言回归）
+
+1. **JSON key collision 漏判**：原 `if nk in out and nk != k` 在 `nk==k` 时放过真碰撞；
+   改 `if nk in out: raise ValueError`。
+2. **decl 表类型混淆**：`decl_methods/fields` 是 set 而通用 `_bfs` 假定 dict →
+   `AttributeError: set object has no attribute get`；拆成 map 字典 BFS + decl 集合 BFS。
+3. **javap classpath 指错**：`-cp` 指到目录而非 fixed jar 本身，报
+   `Error: class not found: t.Shared`。
+4. **JSON 重序列化假改写**：无精确改名时仍 `json.dumps` 导致缩进变化，4 个
+   `fabric.mod.json` / `*.mixins.json` 被误判改写（首轮 `rewritten=26`）；加
+   `changed[0]` 标志、无改名直接返回原字节 → 真实 `rewritten=6`。这是「把格式差异
+   当修复」的假阳性，最危险。
+5. **粗扫误判**：早期用正则扫 `.class` 原始字节得「上百个类名字符串」，精确常量池
+   解析证明 8 个 jar 的裸类名 LDC 为 0，真实盲区在 `L...;` 描述符形态与 refmap JSON。
+
+另有 §16 已记的 `String.replace(anchor, replacementString)` 会把 replacement 里的
+`$` 紧跟反引号当成「插入匹配前缀」特殊模式；本章插入同样用函数式替换 `() => text`。
+
+### 17.6 本章收窄了什么、没有收窄什么
+
+**收窄**：把「Mixin refmap / 反射字符串未覆盖」从一句边界，变成可执行的精确审计器：
+70 条可验证改名、150 条逐条 fail-loud、6 个真实文件条目改写，且改后符号预言机工单不变。
+
+**没有收窄**：`--rewrite` 只是**符号**改名，不证明这些字符串在运行期被如何使用
+（反射、序列化、网络协议、配置 schema）；26.1 的 33 条 MAPPED_TARGET_MISSING 与
+10 条 MEMBER_TARGET_MISSING 说明映射表本身也不完整；`assets/` 下的点分类名文案被
+有意排除；179 SIGCHG + 423 MISSING（§16 口径）仍需人工；真实客户端 / Fabric /
+LWJGL / Mixin 运行时 / 语义漂移 / Bedrock 全部未解决。**静态可解析率仍不等于能跑，
+「全平台全版本任意 mod 都能跑」仍不可达。**
+
+### 17.7 复现与踩坑（自备制品，脚本不下载不入库）
+
+```bash
+python3 tools/test_stringsurface.py                 # 78 断言，零外部数据
+python3 tools/stringsurface.py --spec /work/spec.json --out-dir /work/audit
+python3 tools/stringsurface.py --spec /work/spec.json --out-dir /work/rw --rewrite
+```
+
+* 默认只审计不写 jar；`--rewrite` 才产 `fixed/*.jar`；有 unresolved 就 `exit 2`。
+* spec 模板见 `data/stringsurface-spec.example.json`（仅路径占位符）；聚合数字见
+  `data/stringsurface-summary.csv`（21 列纯计数）；口径 / 合规 / 踩坑见
+  `data/stringsurface-README.md`。
+* `triage.tsv` / `stats.json` / `fixed/*.jar` 只写 `--out-dir`，**不进仓库与发布包**
+  （发布脚本有禁止断言）。
+* 中文路径 + 空 locale 会让裸 `javac` 报 `file not found`（§5 第 16 条），所有 `*.sh`
+  已 locale 自愈。
+
+
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -1298,4 +1418,8 @@ P1–P6 / S1–S7 实跑与 49 条自包含断言（2026-11-15；制品目录仅
 LinkCheck 工单、两张真实目标声明表上的生成 + RemapTool + 无 `--map` 复测实跑（2026-11-15；48 条接受、13 条误配未洗白；输入字节与映射均不分发，聚合数字见 `data/relocate-summary.csv`）。
 §16 来自 `java/mcport/CallKind.java` / `tools/bridgegen.py` / `tools/test_bridgegen.py` 在 §15 复测后的
 8 份真实工单、2 份目标声明表、8 个已重映射 mod jar 上的实跑与 61 条自包含断言（2026-11-15；602 条引用、
-4 条唯一人工候选、`auto_fixed=0`；输入字节、callkind/triage/骨架均不分发，聚合数字见 `data/bridgegen-summary.csv`）。*
+4 条唯一人工候选、`auto_fixed=0`；输入字节、callkind/triage/骨架均不分发，聚合数字见 `data/bridgegen-summary.csv`）。
+§17 来自 `tools/stringsurface.py` / `tools/test_stringsurface.py` 在 §15 复测后的 8 个真实
+mod jar、2 张目标声明表、2 张映射表上的 audit / rewrite 实跑、4 个改写 `.class` 的 `javap` 结构校验与
+78 条自包含断言（2026-11-15；7288 次字符串出现、70 条精确可改、150 条 fail-loud、6 个真实条目改写；
+输入字节、triage / fixed jar 均不分发，聚合数字见 `data/stringsurface-summary.csv`）。*
