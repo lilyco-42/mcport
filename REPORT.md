@@ -604,9 +604,11 @@ f3f4aa8852806cd59fdfb7e2f8078171b8533157ef38b420b7b94b3bc23457ac  mcport-runtime
    连静态扫描都不会报，HostBridge 更不会。
 5. **仍未在真实 Minecraft 客户端端到端**，26.x 仍需 JDK 25 / class major 69（§7 第 4 条）。
    本章全部结论来自等价最小复现 + JVM 规范/实测，不证明任何 14 mod 或 4 热门 mod 能跑。
-6. **宿主侧改写与 mod 侧改写不能自动叠加**：两个 agent 都注册 `ClassFileTransformer`，
-   顺序、`DEFAULT_SKIP` 前缀、共享 `Mapping` 状态都需要一次显式编排；
-   本章只分别验证各自单独生效，没有验证同进程双 agent 组合。
+6. **双 agent 组合已验证可行，但必须限定改写授权范围**（由 §11 收窄本条）。两个
+   `-javaagent` 同进程挂载、顺序反转均实测通过，两处改写落在**不同类**上互不覆盖；
+   但 `McPortRuntime` 默认「改所有非 `DEFAULT_SKIP` 前缀的类」，映射表若命中宿主或
+   自写适配器会静默误改名（§11.4 的 G7）。组合必须 `-Dmcport.only=<mod 包>`。
+   这仍是**最小复现级结论**，未在真实 Minecraft 客户端双挂验证。
 
 **净结论**：跨版本失效里「符号链接不上」这一层，可以从「约 80% 可静态解析」再往前推到
 「SIGCHG 有可运行的机械适配路线」；但「任意版本都有效」仍然不可达，
@@ -625,8 +627,85 @@ f3f4aa8852806cd59fdfb7e2f8078171b8533157ef38b420b7b94b3bc23457ac  mcport-runtime
 | `pipeline-26.sh` | 误传 `1.21.1 1.21.11 26.1 <modsDir>`，报 `缺少 intermediary jar: /tmp/mc/hot/remapped-26.1` | 用法是 `<srcVer> <dstVer> <modsDir> [lastVerWithProguard]`，第 3 参必须是目录；误把 `26.1` 当 modsDir 后触发的是下一层报错 | 加 `[ -d "$MODS" ]` fail-loud 并打印正确用法。按 `1.21.1 26.1 /tmp/mc/hot/remapped-26.1 1.21.11` 复跑 9 步全通：1162 judged / **331 需人工**（SIGCHG 74 + MISSING 257），exit 2 |
 
 **`exit 2` 不是失败**：它是 §3.1 / README 约定的「仍有 SIGCHG/MISSING 需人工」闸门。
-本次只修交付链的可复现性，不改变任何兼容性结论；§9.5 的 6 条边界全部不变。
+本次只修交付链的可复现性，不改变任何兼容性结论；§9.5 的 6 条边界在本章发布时全部不变
+（第 6 条后来由 §11 的双 agent 组合实验收窄）。
 教训：README 写「可直接进 CI」时，CI 既不能依赖预编译产物，也不能让错参数穿透到第二步才报无关错误。
+
+---
+
+## 11. 双 agent 组合：RENAME 与 SIGCHG 在同一份 mod 里同时修
+
+### 11.1 为什么必须做这一轮
+
+§9 分别验证了两条路线：`McPortRuntime` 改 **mod 侧**引用解纯改名（RENAME），
+`HostBridge` 在**宿主类定义前**注入旧签名转发壳解 SIGCHG。但真实 mod 不会分类崩——
+一份字节码里完全可以同时有「只改了名」和「连签名都变了」的引用。若两个
+`ClassFileTransformer` 在同一 JVM 里互相覆盖、顺序敏感、或共享 `Mapping` 状态时串味，
+§9 的两个单点结论就不能相加。§9.5 第 6 条因此诚实标注「未验证同进程双 agent 组合」。
+本章在隔离目录 `/tmp/combo-exp` 把这条边界攻掉，并把结论固化成 `demo/run.sh` 场景 F。
+
+### 11.2 最小复现构造
+
+| 角色 | 内容 |
+| --- | --- |
+| 源版本 `net/mc/Region` | `getBlock(III)I`=42（目标里只改名）、`getBiome(III)I`=7（目标里连签名都变） |
+| 目标版本 `net/mc/Region` | `readBlock(III)I`=42（RENAME）、`getBiomeAt(BlockPos)`=x+y+z（SIGCHG）、`classify(int)` 带分支制造 `StackMapTable` |
+| mod `demo/ComboMod` | **同一个 main** 里同时调 `r.getBlock(1,2,3)` 与 `r.getBiome(1,2,3)`，并反射打印宿主方法表 |
+| 语义适配器 `demo/ComboAdapter` | `getBiome(Region,int,int,int)` → `r.getBiomeAt(new BlockPos(x,y,z))`；源 7 → 6 显式暴露漂移 |
+| `combo-map.tsv` | `M\tnet/mc/Region\t(III)I\tgetBlock\treadBlock`（mod 侧重命名表） |
+| `combo-bridge.tsv` | `net/mc/Region\tgetBiome\t(III)I\tvirtual\tdemo/ComboAdapter\tgetBiome`（宿主侧桥规则） |
+
+关键设计：两条改写作用于**不同类**——`McPortRuntime` 只该改 `demo/ComboMod`，
+`HostBridge` 只改 `net/mc/Region`。这是组合能成立的结构性原因，不是运气。
+
+### 11.3 六场景 F：单 agent 各修一半，双 agent 才跑通
+
+| 场景 | 挂载 | 结果 |
+| --- | --- | --- |
+| F0 plain | 无 | `rc=1`，`NoSuchMethodError: 'int net.mc.Region.getBlock(int, int, int)'` |
+| F1 runtime | 仅 `mcport-runtime.jar` | `rc=1`，死在 `getBiome(III)I`（**SIGCHG 没修**），改名层已生效 |
+| F2 bridge | 仅 `hostbridge.jar` | `rc=1`，死在 `getBlock(III)I`（**RENAME 没修**），打印 `[hostbridge] rules=1 owners=[net/mc/Region]` |
+| F3 both + `only` | 双 agent + `-Dmcport.only=demo/` | `rc=0`，`combo on 1.21.1-COMBO block=42 biome=6`；方法表含 `getBiome/3` 与 `readBlock/3` |
+| F4 both default | 双 agent，不加 `only` | `rc=0`，同 F3（此表未投毒，故侥幸也对） |
+| F5 both reverse | 先 hostbridge 后 mcport | `rc=0`，同 F3 → **顺序无关** |
+
+正式 `demo/run.sh` 把它固化成 F1（单 runtime 断言 `getBiome` 报错）、F2（单 bridge 断言
+`getBlock` 报错）、F3（双 agent + `only`，断言 `rc=0` / `block=42 biome=6` / `getBiome/3` /
+mod jar sha1 零改动）、F4（顺序反转断言同结果）。六场景 A–F 实跑 `DEMO6_RC=0`，末尾 `OK`。
+
+### 11.4 第二轮加严 G：真坑在「默认改写范围」
+
+在目标宿主里加 `classify(int)`（`javap -v` 确认有 2 处 `StackMapTable`），另造一份
+`combo-map-poison.tsv` 故意多投一条 `getBiomeAt(Lnet/mc/BlockPos;)I → getBiomeAtV2`，
+模拟映射表命中宿主方法的情形：
+
+| 场景 | 条件 | 结果 |
+| --- | --- | --- |
+| G1 / G2 | `-Dmcport.only=demo/ComboMod` / `=demo/` | `rc=0`，宿主方法表正常 `getBiomeAt/1` |
+| G3 / G4 | 默认范围（宿主带 `StackMapTable`）/ 顺序反转 | `rc=0`，**无 VerifyError / ClassFormatError**，默认改写后字节仍合法 |
+| G5 | 缺 `-Dmcport.map` | `rc=1`，明确 `NoSuchMethodError`（fail-loud） |
+| G6 | 缺 `-Dmcport.bridge` | `IllegalStateException: [hostbridge] no -Dmcport.bridge=<spec>; refusing to start`（fail-loud） |
+| **G7 poison + 默认范围** | 投毒表，不加 `only` | `rc=0` 但方法表变成 `getBiomeAtV2/1`：映射表把**宿主** `getBiomeAt` 静默改名，适配器调用被一起改坏 |
+| G8 poison + `only` | 投毒表，限定 mod 类 | `rc=0`，方法表正常 `getBiomeAt/1` |
+
+`mod` jar 前后 sha1 均 `0e3df8c68a6f6b90bb092c60a005d95b11cc7ad0`：
+agent 全程不落盘。G7 是本章最有用的一条：`DEFAULT_SKIP` 只排除了
+`net/minecraft/ / com/mojang/ / java/ / javax/ / jdk/ / sun/ / com/sun/`，
+**不认识用户自写的 adapter 包和共享类**。默认「改所有非 skip 类」在单 agent 场景没事，
+一旦与宿主桥组合、且映射表含宿主条目，就会静默改坏宿主 → 桥转发到不存在的方法。
+
+> **组合纪律（写进 demo F3/F4）**：双 agent 必须同时给
+> `-Dmcport.only=<mod 包前缀>`，把 `McPortRuntime` 的授权范围锁死在 mod 类；
+> 宿主与 adapter 只交给 `HostBridge` 在 pre-define 阶段按 owner 精确匹配处理。
+
+### 11.5 边界收窄后的净结论
+
+§9.5 第 6 条从「**未验证**同进程双 agent 组合」收窄为「**已验证可行**，但必须
+`-Dmcport.only` 限定改写范围，且仍是最小复现级、未在真实客户端双挂」。
+其余 5 条边界**一条都没松动**：173 条 SIGCHG 仍待人工写适配器、477 条 MISSING 无转发目标、
+`<init>` 不支持、语义漂移不可检测（F3 的 42/6 又一次自证）、真实客户端端到端与 26.x JDK 25
+仍未做。**「任意版本都有效」依旧不可达**：本章只证明「符号链接不上」这一层里，
+两种机械改写可以在同一 JVM 里安全叠加，没有碰到语义层与已删除成员层。
 
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
@@ -637,4 +716,5 @@ Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率�
 §9 的时序约束来自本机 HotSpot 17.0.20.1 实测与
 JEP 451 / Java SE 17 `java.lang.instrument.Instrumentation` 文档；工单计数来自
 `data/hotmods/*.json` 的 `details` 数组（2026-11-14）。
-§10 来自隔离目录 `/tmp/mc-port-smoke` 的两条流水线实跑日志（2026-11-14，输入为 4 个热门 mod 的重映射样本）。*
+§10 来自隔离目录 `/tmp/mc-port-smoke` 的两条流水线实跑日志（2026-11-14，输入为 4 个热门 mod 的重映射样本）。
+§11 来自 `/tmp/combo-exp` 的双 agent F/G 实跑与 `demo/run.sh` 六场景全绿日志（2026-11-14）。*

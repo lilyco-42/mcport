@@ -10,7 +10,7 @@
 bash demo/run.sh
 ```
 
-五个场景（A–E，全部 30 秒内跑完、无需下载 Minecraft）：
+六个场景（A–F，全部 30 秒内跑完、无需下载 Minecraft）：
 1. **A** 源版本跑通：`mod started on MC 1.20.1 -> block=42`
 2. **B** 同一份未改动的二进制换到新版本 → `NoSuchMethodError`（这正是线上 mod 崩溃的第一性机制）
 3. **C** 加 `-javaagent:mcport-runtime.jar -Dmcport.map=map-v1-v2.tsv` → 又能跑，且 **jar 的 sha1 前后完全一致**（解纯改名 RENAME）
@@ -19,9 +19,13 @@ bash demo/run.sh
    - **E1** C 的纯改名路线把名字改对了，但 JVM 按 名+描述符 精确链接，仍报 `getBlockState(III)I` 不存在；
    - **E2** 换成 `-javaagent:build/hostbridge-runtime.jar -Dmcport.bridge=bridge-v2b.tsv` 的**宿主侧兼容桥** → 跑通，mod jar 仍一字节未改；输出 `block=6` 而源版本是 `42`，**故意暴露语义漂移**；
    - **E3** 时序铁律：类已加载后 `retransformClasses` 加方法被 HotSpot 拒绝（`attempted to add a method`），证明桥必须在**启动期 premain、类定义前**注入。
+6. **F** 同一份 mod 里同时有纯改名与改签名两类引用（双 agent 组合，REPORT §11）：
+   - **F1** 仅 mod 侧 agent → SIGCHG 那条死在 `getBiome`；**F2** 仅宿主桥 → RENAME 那条死在 `getBlock`；
+   - **F3** 两个 `-javaagent` 同挂 + `-Dmcport.only=<mod 包>` → `block=42 biome=6`，mod jar 零改动；
+   - **F4** agent 顺序反转结果不变。`-Dmcport.only` 是组合纪律：默认改写范围会误改宿主/adapter（§11.4 G7）。
 
-> `demo/run.sh` 用 JDK 17+ 的 `jar --date` 固定条目时间戳，连跑两遍产出的 5 个 jar sha256 完全一致；
-> 旧 JDK 无该选项时自动降级（只是为了可复现，不影响 A–E 结论）。
+> `demo/run.sh` 用 JDK 17+ 的 `jar --date` 固定条目时间戳，连跑两遍 demo 根目录 5 个发布 jar
+> 与 `build/` 下实验 jar 的 sha256 各自完全一致；旧 JDK 无该选项时自动降级（只影响可复现，不影响 A–F 结论）。
 
 ## 组件
 
@@ -38,7 +42,7 @@ bash demo/run.sh
 
 HostBridge 规则表每行 6 列（TAB 分隔）：`owner / oldName / oldDesc / virtual或static / adapterClass / adapterMethod`。
 适配器描述符由工具自动推导，人只写普通 Java 语义适配方法；`<init>`/`<clinit>`、重复签名、空表一律 fail-loud。
-**它不消灭语义漂移**：E2 的 42 → 6 就是证据，也不覆盖 MISSING（成员/类已删除）。详见 REPORT.md §9。
+**它不消灭语义漂移**：E2 的 42 → 6 就是证据，也不覆盖 MISSING（成员/类已删除）。详见 REPORT.md §9；与 `McPortRuntime` 双挂的组合纪律与实测见 §11（demo 场景 F）。
 
 配套：`Verifier`（重映射后结构校验闸门）、`AnnotationDump`（注解格式采样）、
 `tools/mkdecl.py`（生成目标版本声明表）、`tools/mkmap.py`（生成常规重映射表）、`tools/report.py`（JSON → 迁移工单）。
@@ -80,7 +84,7 @@ bash pipeline-26.sh 1.21.1 26.1 /path/to/mods
 
 **所以："任意版本都有效"不可达。** 常规版本可达的是"~80% 自动 + ~20% 精确列出 + 100% fail-loud"；
 26.x 是更低的 78.7% 静态天花板且附带额外硬缺口。
-详见 REPORT.md §4、§7（诚实的边界声明）、§8（26.x 攻坚）与 §9（宿主侧兼容桥 / SIGCHG）。
+详见 REPORT.md §4、§7（诚实的边界声明）、§8（26.x 攻坚）、§9（宿主侧兼容桥 / SIGCHG）与 §11（双 agent 组合）。
 
 ## 构建
 

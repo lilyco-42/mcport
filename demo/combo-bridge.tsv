@@ -1,0 +1,2 @@
+# owner oldName oldDesc kind adapterClass adapterMethod
+net/mc/Region	getBiome	(III)I	virtual	demo/ComboAdapter	getBiome
