@@ -37,6 +37,10 @@ https://asm.ow2.io/ ，许可原文 https://asm.ow2.io/license.html ：
 * **Minecraft client jar / intermediary jar / Mojang 官方 ProGuard 映射**：
   见 `data/NOTICE-mappings.md`。官方映射禁止「完整且未修改地再分发」，
   本仓库只保留聚合测量 CSV 与统计 JSON，不含任何映射表。
+* **真实 Minecraft 26.1 游戏类字节**：`demo/real26/` 的脚本只在运行时从使用者自备的
+  `MC_26_1_JAR` 抽取**一个** `com/mojang/blaze3d/GpuOutOfMemoryException.class` 到被
+  `.gitignore` 忽略的 `demo/build/real26/`；本仓库、Git 历史与分发包均不含任何 Mojang 类字节，
+  亦不随包提供 26.1 client jar。
 * **热门 Fabric mod 二进制**（Sodium / Iris / ImmediatelyFast / YACL /
   Xaero's Minimap / fabric-language-kotlin 等）：仅在本机 `/tmp` 下用于
   静态链接测量，**未复制进本仓库、未上传到任何下载通道**。其许可包含

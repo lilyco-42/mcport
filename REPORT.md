@@ -292,6 +292,14 @@ entityculling / fabric-api / reeses-sodium-options / noisium，全部从 Modrint
      当前 locale 不含 UTF-8 时，从 `locale -a` 里挑 `C.UTF-8 / C.utf8 / en_US.UTF-8 / zh_CN.UTF-8`
      设 `LC_ALL`+`LANG` 并打印提示；已是 UTF-8 的环境不覆盖。无 LANG 环境实测 demo 四场景全绿。
      **教训：README 承诺"可直接进 CI"，CI 就不能依赖调用者的 locale。**
+ 17. **premain 抛异常在 HotSpot 上不是普通 Java 崩溃，而是 JVM native abort（rc=134）**。
+     §12 的 fail-loud 用例（缺 `bridge.tsv` / 空规则表）在 JDK 17 与 JRE 25 都复现：
+     `java.lang.instrument` 打印 `ASSERTION FAILED ... invokeJavaAgentMainMethod failed`，
+     随后 `FATAL ERROR in native method: processing of -javaagent failed` 并可能生成 core 文件。
+     这是「绝不带病启动」的预期表现，而不是 agent 失去控制；`demo/real26/run.sh` 用
+     `ulimit -c 0` 避免污染工作区。另一坑：`DumpAgent` 的匿名内部类 `DumpAgent$1`
+     初版没打进 fat jar，observer 在 premain 直接 `NoClassDefFoundError: demo26/DumpAgent$1`；
+     agent 是 bootstrap 可见的类路径，**内部类/依赖 jar 必须一起打进 fat jar**。
 
 ---
 
@@ -368,10 +376,13 @@ bash pipeline-26.sh 1.21.1 26.1 /path/to/mods
    以及真实客户端端到端验证，全部**仍未解决**。
 3. **JDK 主版本本身在跳**（8→16→17→21→25），进程内跨大版本不现实。
 4. **未在真实 Minecraft 客户端里跑通端到端**（需要完整游戏 + Fabric 启动链）。
-   26.x 在本机连加载都不可能：本机只有 JDK 17/21，实测 26.1 `com/mojang/blaze3d/Blaze3D.class`
-   的 class major = 69（需 Java 25），JDK 21 直接抛 `UnsupportedClassVersionError`。
-   demo/ 用的是等价最小复现（同样的 JVMS 机制、同样的 NoSuchMethodError），
-   14 mod 的量化是离线字节码静态判定 —— 它证明"能解析/不能解析"，不证明"跑起来行为正确"。
+   26.x 需 JDK 25 / class major 69；本机默认 JDK 17/21 实测 `UnsupportedClassVersionError`。
+   §12 已在临时安装的 Temurin JRE 25.0.5 上，把**真实 26.1 游戏类**加载到 JVM 并用
+   启动期 `-javaagent` 编织、校验（含 `-Xverify:all`）、链接成功；但这仍**不是**
+   Fabric/游戏启动链：只覆盖了一个无外部依赖的叶类与我们自编译的调用方，
+   LWJGL/native、Mixin 启动、真实 mod 加载、资源包与网络栈一概未碰。
+   demo/ 的 A–F 是等价最小复现，14 mod 的量化是离线字节码静态判定 ——
+   它证明"能解析/不能解析"，不证明"跑起来行为正确"。
   91 条 `com/mojang/` 独立库引用被标 EXTERNAL（client jar 不含、本预言机不覆盖），**不是证明它们稳定**；
   真实运行仍需这些库与 26.x 的版本矩阵另行验证（§5 第 15 条）。
 5. 定位不是"取代 Fabric/NeoForge"，而是**第三条路**：不重写 mod，只把"能不能跑"变成
@@ -602,8 +613,9 @@ f3f4aa8852806cd59fdfb7e2f8078171b8533157ef38b420b7b94b3bc23457ac  mcport-runtime
    工单里 `class_1043.<init>(IIZ)V`、`RenderTarget.<init>(Z)V` 都属此类，仍需改 mod。
 4. **语义漂移（§1 第 3 层）依旧不可检测**。E2 的 42→6 是明证；同名同签名行为变化
    连静态扫描都不会报，HostBridge 更不会。
-5. **仍未在真实 Minecraft 客户端端到端**，26.x 仍需 JDK 25 / class major 69（§7 第 4 条）。
-   本章全部结论来自等价最小复现 + JVM 规范/实测，不证明任何 14 mod 或 4 热门 mod 能跑。
+5. **仍未在真实 Minecraft 客户端端到端**；26.x 需 JDK 25 / class major 69 这一环境门槛已由
+    §12 在 JRE 25 + 真实 26.1 游戏类上收窄为「启动期编织/校验/链接可行」，
+    但本章 A–F 本身仍是等价最小复现 + JVM 规范/实测，不证明任何 14 mod 或 4 热门 mod 能跑。
 6. **双 agent 组合已验证可行，但必须限定改写授权范围**（由 §11 收窄本条）。两个
    `-javaagent` 同进程挂载、顺序反转均实测通过，两处改写落在**不同类**上互不覆盖；
    但 `McPortRuntime` 默认「改所有非 `DEFAULT_SKIP` 前缀的类」，映射表若命中宿主或
@@ -702,10 +714,74 @@ agent 全程不落盘。G7 是本章最有用的一条：`DEFAULT_SKIP` 只排�
 
 §9.5 第 6 条从「**未验证**同进程双 agent 组合」收窄为「**已验证可行**，但必须
 `-Dmcport.only` 限定改写范围，且仍是最小复现级、未在真实客户端双挂」。
-其余 5 条边界**一条都没松动**：173 条 SIGCHG 仍待人工写适配器、477 条 MISSING 无转发目标、
-`<init>` 不支持、语义漂移不可检测（F3 的 42/6 又一次自证）、真实客户端端到端与 26.x JDK 25
-仍未做。**「任意版本都有效」依旧不可达**：本章只证明「符号链接不上」这一层里，
+其余边界里，173 条 SIGCHG 仍待人工写适配器、477 条 MISSING 无转发目标、
+`<init>` 不支持、语义漂移不可检测（F3 的 42/6 又一次自证）、真实客户端端到端
+**一条都没松动**；「26.x JDK 25 未做」已由 §12 收窄为
+「真实 26.1 类 + JRE 25 + 双 agent 编织/校验/链接已验证，仍非客户端启动链」。
+**「任意版本都有效」依旧不可达**：本章只证明「符号链接不上」这一层里，
 两种机械改写可以在同一 JVM 里安全叠加，没有碰到语义层与已删除成员层。
+
+---
+
+## 12. JRE 25 × 真实 26.1 major-69 类：把「本机连加载都不可能」收窄到可验证层
+
+### 12.1 为什么单独做这一轮
+
+§7 第 4 条、§9.5 第 5 条原先写的是「本机只有 JDK 17/21，26.x 连加载都不可能」。
+这只证明**本机默认运行时**不够，并不证明「启动期 `-javaagent` 方案遇到 Java 25 / class major 69 会失效」。
+两者是不同命题：JVM 字节码版本、ASM 读写能力、JVM 校验器、`java.instrument` premain 四层都要分别过。
+所以这一轮只在隔离目录做最小可判定实验，不下载/不分发任何游戏字节到仓库。
+
+### 12.2 实验输入与合规边界
+
+* 本机默认 `openjdk 17.0.20.1`；临时安装 Temurin **JRE 25.0.5+8**（清华 Adoptium 镜像，
+  `sha256 6fac98f0c8202efc3135a9e9e42aa61963ec42d1c5cbb40caf231e7b14a24ef6`，含 `java.instrument@25.0.5`）。
+* 真实类来自本机 `REAL-26.1.jar` 的 `com/mojang/blaze3d/GpuOutOfMemoryException.class`：
+  **436 B / class major 69 / sha1 `a401a336c2ede849b840601504992b41483e37bc`**，
+  `javap` 只声明构造器，常量池无 `org/lwjgl`、`net/minecraft` 等外部依赖，是能脱离游戏加载的叶类。
+* 编译期 stub、调用方、adapter、observer transformer 都是本仓库自写源码；
+  `out/stub` 故意**不进入运行期 classpath**。`demo/real26/` 与发布包**不含 Mojang 字节**：
+  脚本运行时从使用者自备的 `MC_26_1_JAR` 抽取，缺前置则打印 `SKIP` 并返回 0。
+* ASM 9.9 支持 `V25`；三个 agent 打成 fat jar（ASM 对 bootstrap 可见），避免
+  `NoClassDefFoundError: org/objectweb/asm/...` 与 observer 内部类漏打包。
+
+### 12.3 S0–S11 实测（`bash demo/real26/run.sh`，输出 `REAL26_OK`）
+
+| 场景 | 结果 | 它判定了什么 |
+| --- | --- | --- |
+| S0 | 默认 JDK 17 `UnsupportedClassVersionError`，rc=1 | 类版本门槛真实存在，不是文档推测 |
+| S1 | JRE 25 `LOADED ... major=69`，rc=0 | 真实 26.1 字节码能被 Java 25 定义 |
+| S2 | 无 agent `NoSuchMethodError: legacyMessage()`，rc=1 | 旧引用在真实目标类上确实链接失败 |
+| S3 | HostBridge 注入后 `REAL-26.1-BRIDGE-OK`、`major=69`、`declared=legacyMessage`，rc=0 | **真实 major-69 类在 pre-define 被编织、通过校验并链接** |
+| S4 | 只有 McPortRuntime：改名生效但宿主仍缺方法，rc=1 | RENAME 单路线的边界在真实类上复现 |
+| S5/S6 | 双 agent 与顺序反转均 `REAL-26.1-BRIDGE-OK`，rc=0 | §11 的组合结论在 JRE 25 / 真实类上成立；`-javaagent` 启动期加载无 JEP 451 动态 agent 警告 |
+| S7/S8 | 缺 bridge 规则表 / 缺映射表均 fail-loud | 失败语义跨 JDK 17→25 不变；S7 的 `premain` 抛异常由 JVM 以 native abort（rc=134）表现，脚本 `ulimit -c 0` 防 core dump |
+| S9 | observer 落盘变换后字节：**535 B / major 69 / sha1 `18cf2fca971ca3887b42602789b1fc765aa41585`**，`javap` 多出且只多出 `legacyMessage()` | 字节级证明「在内存里改，jar 里原类不变」，且没有把 class 降级成旧版本 |
+| S10 | 只挂 McPortRuntime 时 observer dump sha1 **等于原类** `a401a336…`，且调用仍 `NoSuchMethodError` | `-Dmcport.only=demo26/LegacyRename` 把改写严格锁在调用方，宿主一字节未动 |
+| S11 | `-Xverify:all` + 双 agent + observer：rc=0，dump 仍 535 B / major 69 | 强校验模式下编织结果仍合法，不是靠关闭验证侥幸通过 |
+
+### 12.4 收窄到哪里，以及没有收窄到哪里
+
+**收窄**：原先「26.x 需要 JDK 25，本机不可能加载」只剩「需要 JRE 25」这一条环境事实；
+在 JRE 25 上，ASM 9.9 读写 major 69、`java.instrument` premain、HostBridge 注入、
+McPortRuntime 限定改写、JVM 全量校验、链接、fail-loud、双 agent 顺序无关，全部实测通过。
+
+**没有收窄**：真实 Minecraft 客户端/Fabric 启动链、LWJGL/native 库、Mixin 注入链、
+资源与网络栈、任何一个真实 mod 能跑；173 条 SIGCHG 与 477 条 MISSING 仍需人工，
+`<init>` 与语义漂移仍不可修，§1 第 3 层依旧封死「任意版本都有效」。
+本实验选的是**一个无外部依赖的叶类**，这是为了把 JVM 层命题判干净，
+绝不能外推成「26.1 客户端能启动」或「78.7% 静态可解析率等于能运行」。
+
+### 12.5 复现
+
+```bash
+MC_26_1_JAR=/path/to/26.1-client.jar JAVA25=/path/to/jre25/bin/java bash demo/real26/run.sh
+# 或让脚本按固定 sha256 拉 JRE 25：
+MC_26_1_JAR=/path/to/26.1-client.jar MC_REAL26_AUTO_JRE=1 bash demo/real26/run.sh
+```
+
+缺 jar / 缺 JRE 25 时打印 `SKIP` 并返回 0，因此 `bash demo/run.sh` 的 A–F 六场景与
+纯 JDK 17 可复现性完全不受影响；`demo/real26/README.md` 逐项列出证明与不证明的边界。
 
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
@@ -717,4 +793,5 @@ Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率�
 JEP 451 / Java SE 17 `java.lang.instrument.Instrumentation` 文档；工单计数来自
 `data/hotmods/*.json` 的 `details` 数组（2026-11-14）。
 §10 来自隔离目录 `/tmp/mc-port-smoke` 的两条流水线实跑日志（2026-11-14，输入为 4 个热门 mod 的重映射样本）。
-§11 来自 `/tmp/combo-exp` 的双 agent F/G 实跑与 `demo/run.sh` 六场景全绿日志（2026-11-14）。*
+§11 来自 `/tmp/combo-exp` 的双 agent F/G 实跑与 `demo/run.sh` 六场景全绿日志（2026-11-14）。
+§12 来自 `/tmp/real26-exp` 与 `demo/real26/run.sh` 的 S0–S11 实跑（2026-11-14，Temurin JRE 25.0.5 + 真实 26.1 client jar 内的单个 major-69 叶类）。*

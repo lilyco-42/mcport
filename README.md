@@ -84,7 +84,27 @@ bash pipeline-26.sh 1.21.1 26.1 /path/to/mods
 
 **所以："任意版本都有效"不可达。** 常规版本可达的是"~80% 自动 + ~20% 精确列出 + 100% fail-loud"；
 26.x 是更低的 78.7% 静态天花板且附带额外硬缺口。
-详见 REPORT.md §4、§7（诚实的边界声明）、§8（26.x 攻坚）、§9（宿主侧兼容桥 / SIGCHG）与 §11（双 agent 组合）。
+详见 REPORT.md §4、§7（诚实的边界声明）、§8（26.x 攻坚）、§9（宿主侧兼容桥 / SIGCHG）、
+§11（双 agent 组合）与 §12（JRE 25 × 真实 26.1 类）。
+
+## 可选：真实 26.1 类 × JRE 25（REPORT §12）
+
+`demo/real26/run.sh` 是**独立可选实验**，不属于 A–F，也不改变它们的「30 秒 / JDK 17 / 无需下载 Minecraft」前提。
+它需要使用者自备 `MC_26_1_JAR`（26.1 client jar）与 `JAVA25`（JRE 25），或让脚本按固定 sha256
+拉取 Temurin JRE 25.0.5；缺前置直接打印 `SKIP` 并返回 0。脚本运行时从 jar 抽取
+`com/mojang/blaze3d/GpuOutOfMemoryException.class`（436 B / class major 69），
+**仓库与发布包不含该字节**。S0–S11 实测证明：JDK 17 拒绝 major 69、JRE 25 能加载、
+无 agent 仍 `NoSuchMethodError`、启动期 `HostBridge` 在真实 major-69 类上注入旧签名后
+通过 `-Xverify:all` 全量校验并链接、双 agent 顺序无关且无 JEP 451 动态加载警告、
+observer dump 显示只在内存里多出且只多出 `legacyMessage()`、`-Dmcport.only=demo26/LegacyRename`
+使宿主类字节保持不变、缺规则表/映射表一律 fail-loud。
+
+```bash
+MC_26_1_JAR=/path/to/26.1-client.jar JAVA25=/path/to/jre25/bin/java bash demo/real26/run.sh
+```
+
+**不证明** Fabric / 客户端启动、LWJGL/native、Mixin 注入链、任何真实 mod 能跑；
+173 条 SIGCHG / 477 条 MISSING、`<init>`、语义漂移与真实客户端端到端仍未解决（REPORT §12.4）。
 
 ## 构建
 

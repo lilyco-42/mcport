@@ -1,0 +1,2 @@
+# owner	oldName	oldDesc	kind	adapterClass	adapterMethod
+com/mojang/blaze3d/GpuOutOfMemoryException	legacyMessage	()Ljava/lang/String;	static	demo26/Adapter	legacyMessage
