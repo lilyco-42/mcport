@@ -36,7 +36,9 @@ https://asm.ow2.io/ ，许可原文 https://asm.ow2.io/license.html ：
 
 * **Minecraft client jar / intermediary jar / Mojang 官方 ProGuard 映射**：
   见 `data/NOTICE-mappings.md`。官方映射禁止「完整且未修改地再分发」，
-  本仓库只保留聚合测量 CSV 与统计 JSON，不含任何映射表。
+  本仓库只保留聚合测量 CSV 与统计 JSON，不含任何映射表。§13 的 `BodyHash`
+  中间产物 `body-*.tsv` 同理只留在本地工作目录，`data/` 只含
+  `drift-summary.csv` 这类纯聚合数字与匿名口径。
 * **真实 Minecraft 26.1 游戏类字节**：`demo/real26/` 的脚本只在运行时从使用者自备的
   `MC_26_1_JAR` 抽取**一个** `com/mojang/blaze3d/GpuOutOfMemoryException.class` 到被
   `.gitignore` 忽略的 `demo/build/real26/`；本仓库、Git 历史与分发包均不含任何 Mojang 类字节，

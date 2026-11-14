@@ -1,0 +1,5 @@
+pair,old_methods,new_methods,old_unmapped,new_unmapped,aligned_same_real_identity,opcode_diff,operand_diff,call_target_diff,detectable_impl_change,detectable_pct,identical_all_fingerprints,identical_pct,calls_comparable
+1.21.1→1.21.11,70446,85423,744,1177,49618,5699,99,0,5798,11.69,43820,88.31,false
+1.21.11→26.1,85423,89518,1177,0,74316,3312,107,0,3419,4.6,70897,95.4,false
+26.1→26.3,89518,95427,0,0,78555,3944,88,1817,5849,7.45,72706,92.55,true
+1.21.1→26.1,70446,89518,744,0,44808,6254,106,0,6360,14.19,38448,85.81,false

@@ -1,0 +1,16 @@
+{
+  "_comment": "复现模板：把 <WORKDIR>/<MAPS> 换成自备路径。body-*.tsv 由 java/mcport/BodyHash 从自备 client jar 生成；ProGuard 映射从 Mojang 官方途径取得。脚本不下载任何输入，不硬编码本机路径。仅聚合计数与匿名哈希进 data/，body-*.tsv / map-*.txt / client jar 一律不得分发。",
+  "anon_limit": 4000,
+  "versions": {
+    "1.21.1":  {"body": "<WORKDIR>/body-1.21.1.tsv",  "obfuscated": true,  "proguard": "<MAPS>/map-1.21.1.txt"},
+    "1.21.11": {"body": "<WORKDIR>/body-1.21.11.tsv", "obfuscated": true,  "proguard": "<MAPS>/map-1.21.11.txt"},
+    "26.1":    {"body": "<WORKDIR>/body-26.1.tsv",    "obfuscated": false},
+    "26.3":    {"body": "<WORKDIR>/body-26.3.tsv",    "obfuscated": false}
+  },
+  "pairs": [
+    {"old": "1.21.1",  "new": "1.21.11", "calls": false},
+    {"old": "1.21.11", "new": "26.1",    "calls": false},
+    {"old": "26.1",    "new": "26.3",    "calls": true},
+    {"old": "1.21.1",  "new": "26.1",    "calls": false}
+  ]
+}

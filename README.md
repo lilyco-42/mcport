@@ -85,7 +85,7 @@ bash pipeline-26.sh 1.21.1 26.1 /path/to/mods
 **所以："任意版本都有效"不可达。** 常规版本可达的是"~80% 自动 + ~20% 精确列出 + 100% fail-loud"；
 26.x 是更低的 78.7% 静态天花板且附带额外硬缺口。
 详见 REPORT.md §4、§7（诚实的边界声明）、§8（26.x 攻坚）、§9（宿主侧兼容桥 / SIGCHG）、
-§11（双 agent 组合）与 §12（JRE 25 × 真实 26.1 类）。
+§11（双 agent 组合）、§12（JRE 25 × 真实 26.1 类）与 §13（真实 jar 语义漂移量化）。
 
 ## 可选：真实 26.1 类 × JRE 25（REPORT §12）
 
@@ -106,12 +106,32 @@ MC_26_1_JAR=/path/to/26.1-client.jar JAVA25=/path/to/jre25/bin/java bash demo/re
 **不证明** Fabric / 客户端启动、LWJGL/native、Mixin 注入链、任何真实 mod 能跑；
 173 条 SIGCHG / 477 条 MISSING、`<init>`、语义漂移与真实客户端端到端仍未解决（REPORT §12.4）。
 
+## 真实 jar 语义漂移量化（REPORT §13）
+
+`java/mcport/BodyHash.java` + `tools/drift_align.py` 在四个真实 client jar
+（1.21.1 / 1.21.11 / 26.1 / 26.3）上全量实测：同名同签名方法里
+**4.6%–14.2%** 的实现字节码指纹确实变了（可检测下界），
+**85.8%–95.4%** 三列指纹全同（静态工具判不干净的区间）。
+指纹全同 ≠ 行为相同，指纹不同 ≠ 一定坏掉；§13 只把「检测不出来」精确化，
+**不推翻「任意版本绝对不失效不可实现」**，也不给 78.7% 静态可解析率加任何可运行性保证。
+
+```bash
+# 自备 client jar 与官方 ProGuard 映射；输入与映射都不进仓库
+java -Xmx1g -cp 'build:lib/*' mcport.BodyHash /path/to/REAL-<ver>.jar /work/body-<ver>.tsv
+python3 tools/drift_align.py --repo . --spec /work/drift-spec.json --out-dir /work/out
+```
+
+`data/drift-summary.csv` 是聚合数字，`data/drift-README.md` 是口径与踩坑，
+`data/drift-spec.example.json` 是路径占位符模板。**仓库与发布包不含** `body-*.tsv`、
+映射文本或任何 Mojang 字节（见 `data/NOTICE-mappings.md`）。
+GH 同类工具（japicmp / revapi / clirr）只比 API 签名、不读方法体，fit < 50%，故本轮自研最小预言机。
+
 ## 构建
 
 ```bash
 mkdir -p build lib
 # 需要 ASM 9.9（读 Java 25 / class major 69 必需）
-javac -nowarn -cp 'lib/*' -d build java/mcport/*.java
+javac -nowarn -cp 'lib/*' -d build java/mcport/*.java   # 含 §13 的 BodyHash
 ```
 
 > **CI 注意**：若 `LANG`/`LC_ALL` 为空，JDK 用 `ANSI_X3.4-1968` 解码路径，中文目录会让 `javac`

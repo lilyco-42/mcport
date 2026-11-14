@@ -15,6 +15,11 @@
 这些文件只含 `mod,total,resolve,...` 之类的聚合数字与少量符号名样本，
 不构成"完整且未修改的映射表"。
 
+§13 的语义漂移测量同理：`BodyHash` 生成的 `body-*.tsv` 含真实成员名与字节码指纹，
+属**本地测量中间产物**，一律不分发；`data/drift-summary.csv` 与
+`data/drift-README.md` 只含聚合数字与匿名口径，`data/drift-spec.example.json` 只含路径占位符。
+匿名样例 `drift-anon-*.tsv` 只有 `sha256(真实身份)[:16]`，本仓库连它也不收录。
+
 复现 `bash pipeline-26.sh` 时，请自行从 Mojang 官方途径取得：
 
 - `$MAPS/map-<ver>.txt`：官方 ProGuard 映射（默认 `/tmp/mc/`）；
