@@ -5,7 +5,7 @@
 | 内容 | 位置 |
 | --- | --- |
 | 源码、文档、测量数据 | GitHub: https://github.com/lilyco-42/mcport |
-| 打包分发件 `mcport-0.1.6-dist.tar.gz` | Cloudflare R2 桶 `lain42-dl`，key `downloads/mcport/0.1.6/mcport-0.1.6-dist.tar.gz` |
+| 打包分发件 `mcport-0.1.7-dist.tar.gz` | Cloudflare R2 桶 `lain42-dl`，key `downloads/mcport/0.1.7/mcport-0.1.7-dist.tar.gz` |
 | 下载入口 | https://lain42.top/downloads/ → 条目 `mcport`（经 `dl.lilyco42.top` 的 R2 签名票据通道加速，遵循站点积分规则） |
 | R2 目录 | `catalog/downloads.json`（Worker `lain42-dl-gate` 运行时读取，60s 缓存） |
 
@@ -32,8 +32,12 @@
 * §15 的 `tools/test_relocate.py` 零外部数据 27 断言全绿；`tools/relocate.py` 在 8 份真实
   工单 + 2 份真实声明表上生成 5 条 C 行，`RemapTool` + 无 `--map` 复测得到 48 条静态 RESOLVE；
   `data/relocate-summary.csv` 仅聚合数字，输入与生成的 C 行均不随包提供。
+* §16 的 `java/mcport/CallKind.java` + `tools/test_bridgegen.py` 零外部数据 61 断言全绿；
+  `tools/bridgegen.py` 在 §15 复测后的 8 份真实工单 + 2 份真实声明表 + 8 个已重映射 mod jar
+  上分桶 602 条引用，得到 4 条唯一人工候选规则与 `auto_fixed=0`；`data/bridgegen-summary.csv`
+  仅聚合数字，callkind / triage / adapter 骨架均不随包提供。
 
-## 边界（务必阅读 REPORT.md §7 / §12 / §13 / §14 / §15）
+## 边界（务必阅读 REPORT.md §7 / §12 / §13 / §14 / §15 / §16）
 
 静态符号可解析率 **不等于** 能在真实客户端运行。同名同签名语义漂移无法被
 静态工具**彻底**判定（demo E2 用 42→6 实测展示；§13 给出 4.6%–14.2% 的可检测下界，
@@ -48,6 +52,8 @@ HostBridge 只解决「旧签名能链接上」这一机械层，`<init>`、已�
 不是游戏启动器，不覆盖 Bedrock / native / Mixin refmap / 语义漂移 / 真实客户端端到端。
 §15 只把 MISSING 里 48 条同名类换包变成机械可解析的 C 行补充，复测后仍有
 179 条 SIGCHG + 423 条 MISSING 需人工；13 条不同简单名偶合 fail-loud 拒绝，静态可解析率仍不等于能跑。
+§16 明确 **零自动修复**：4 条候选规则与抛异常 adapter 骨架只是人工起点，
+`--emit-rules` 需显式人工确认；数值 widening / void 丢弃仍是语义变化，不证明任何 mod 能跑。
 本工具不做「任意版本都有效」或「全平台全版本任意 mod 都能跑」的承诺。
 
 ## 回滚

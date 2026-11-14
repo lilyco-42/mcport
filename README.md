@@ -43,6 +43,9 @@ bash demo/run.sh
 | `tools/test_loader.py` | 零外部数据的 49 断言自包含回归 | `python3 tools/test_loader.py` |
 | `tools/relocate.py` | 严格 C 行类迁移补充：把 MISSING 里同名类换包机械解析出来 | `python3 tools/relocate.py --spec spec.json --out-dir gen/` |
 | `tools/test_relocate.py` | 零外部数据的 27 断言自包含回归 | `python3 tools/test_relocate.py` |
+| `java/mcport/CallKind.java` | 从 mod 字节码恢复 Methodref 的 invoke opcode，补工单缺失维度 | `java -cp `build:lib/*` mcport.CallKind --in a.jar --out kinds.tsv` |
+| `tools/bridgegen.py` | SIGCHG/MISSING 人工桥工作台：候选规则 + 抛异常 adapter 骨架，零自动修复 | `python3 tools/bridgegen.py --spec spec.json --out-dir gen/` |
+| `tools/test_bridgegen.py` | 零外部数据的 61 断言自包含回归 | `python3 tools/test_bridgegen.py` |
 
 HostBridge 规则表每行 6 列（TAB 分隔）：`owner / oldName / oldDesc / virtual或static / adapterClass / adapterMethod`。
 适配器描述符由工具自动推导，人只写普通 Java 语义适配方法；`<init>`/`<clinit>`、重复签名、空表一律 fail-loud。
@@ -90,7 +93,7 @@ bash pipeline-26.sh 1.21.1 26.1 /path/to/mods
 26.x 是更低的 78.7% 静态天花板且附带额外硬缺口。
 详见 REPORT.md §4、§7（诚实的边界声明）、§8（26.x 攻坚）、§9（宿主侧兼容桥 / SIGCHG）、
 §11（双 agent 组合）、§12（JRE 25 × 真实 26.1 类）、§13（真实 jar 语义漂移量化）与
-§14（版本无关的装载编排机）与 §15（严格 C 行类迁移）。
+§14（版本无关的装载编排机）、§15（严格 C 行类迁移）与 §16（零自动修复的人工桥工作台）。
 
 ## 可选：真实 26.1 类 × JRE 25（REPORT §12）
 
@@ -153,7 +156,7 @@ python3 tools/loader.py --repo . --target /path/to/REAL-26.1.jar \
 的 P1–P6 路由与 S1–S7 装配/预言机场景；`RESULT ALL_OK 49`。制品需自备，
 仓库与发布包不含 client jar、映射表或 mod 二进制（见 `data/NOTICE-mappings.md`）。
 **边界**：不启动 Fabric / 真实客户端，不覆盖 Bedrock、native、Mixin refmap / `@Shadow`、
-反射字符串、已删除成员与语义漂移；「全平台全版本任意 mod 都能跑」仍不可达。详见 REPORT §14.7 / §15.6。
+反射字符串、已删除成员与语义漂移；「全平台全版本任意 mod 都能跑」仍不可达。详见 REPORT §14.7 / §15.6 / §16.6。
 
 ## 严格 C 行类迁移补充（REPORT §15）
 
@@ -177,6 +180,26 @@ python3 tools/relocate.py --spec /work/spec.json --out-dir /work/gen
 关键决策：不改 `LinkCheck`、不新增 RELOCATE 桶（其 `CLS_RENAME` 是死代码），
 旧五字段 JSON 完全兼容；详见 REPORT §15.5。
 
+## SIGCHG 人工桥工作台（REPORT §16）
+
+§15 复测后仍有 **179 SIGCHG + 423 MISSING** 需人工。§16 不宣称修好任何一条，而是把
+「能不能机械生成 HostBridge 规则」判干净：8 份真实工单共 **602 条引用**，恢复 invoke opcode、
+镜像 LinkCheck 父类/接口 BFS、拒绝字段/构造/歧义/引用类型/窄化后，只剩 **4 条唯一候选规则**；
+它们仍会改变精度或丢弃返回值，适配器只生成**抛异常骨架**，因此 **auto_fixed=0**。
+
+```bash
+python3 tools/test_bridgegen.py                           # 61 断言，零外部数据
+javac -nowarn -cp 'lib/*' -d build java/mcport/*.java
+python3 tools/bridgegen.py --spec /work/spec.json --out-dir /work/gen --classes build
+# 逐条人工审阅后，才考虑显式 --emit-rules；候选表永不自动喂 JVM
+```
+
+本机实跑：1.21.11 `290/101/189 → 2 候选规则 / 1 重复`，26.1 `312/78/234 → 2 候选规则 / 1 重复`；
+另有 347 条无目标、81 条语义拒绝、58 条 opcode 拒绝、34 条构造、71 条字段、5 条歧义。
+聚合数字见 `data/bridgegen-summary.csv`，口径/踩坑见 `data/bridgegen-README.md`，
+路径模板见 `data/bridgegen-spec.example.json`。**四条候选不是补丁，不代表行为等价或能跑。**
+详见 REPORT §16.6。
+
 ## 构建
 
 ```bash
@@ -185,6 +208,7 @@ mkdir -p build lib
 javac -nowarn -cp 'lib/*' -d build java/mcport/*.java   # 含 §13 的 BodyHash
 python3 tools/test_loader.py                            # §14 编排机 49 断言回归
 python3 tools/test_relocate.py                          # §15 严格迁移 27 断言回归
+python3 tools/test_bridgegen.py                         # §16 人工桥工作台 61 断言回归
 ```
 
 > **CI 注意**：若 `LANG`/`LC_ALL` 为空，JDK 用 `ANSI_X3.4-1968` 解码路径，中文目录会让 `javac`

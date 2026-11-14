@@ -36,4 +36,10 @@
 `relocate-README.md` 口径说明与 `relocate-spec.example.json` 路径占位符。
 `tools/test_relocate.py` 用 tempfile 合成等价假输入，仓库与发布包均不含真实映射行。
 
+§16 的 `tools/bridgegen.py` 同理：`--spec` 指向自备声明表、工单与已重映射 mod jar；
+`callkind.tsv`（含真实成员名与 opcode）、`triage.tsv`（含逐条符号）、候选规则与
+`adapters/*.java` 骨架都**不进仓库、不进发布包**；`data/` 只保留
+`bridgegen-summary.csv` 这类纯聚合数字、`bridgegen-README.md` 口径说明与
+`bridgegen-spec.example.json` 路径占位符。`tools/test_bridgegen.py` 用 tempfile 合成等价假输入。
+
 ASM 9.9 为 BSD-3-Clause；本工具链不与任何 GPL 项目有代码往来。

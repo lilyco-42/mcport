@@ -52,6 +52,12 @@ https://asm.ow2.io/ ，许可原文 https://asm.ow2.io/license.html ：
   `summary.csv` 只写进 `--out-dir`，不下载、不复制、不内嵌 Mojang 类字节、官方映射或第三方
   mod 字节码。`tools/test_relocate.py` 只合成等价假输入。`data/relocate-summary.csv` 与
   `data/relocate-README.md` 仅含聚合数字与口径，`data/relocate-spec.example.json` 仅含路径占位符。
+* **人工桥工作台 §16 的输入与产物**：`tools/bridgegen.py` 只在运行时读调用方自备的
+  `decl-*.tsv`、LinkCheck 工单 JSON、已重映射 mod jar 与 `CallKind.class`；`callkind.tsv` /
+  `triage.tsv` / `bridge-candidates.tsv` / `adapters/*.java` / `stats.json` / `summary.csv`
+  只写进 `--out-dir`，不下载、不复制、不内嵌 Mojang 类字节、官方映射或第三方 mod 字节码。
+  `tools/test_bridgegen.py` 只合成等价假输入。`data/bridgegen-summary.csv` 与
+  `data/bridgegen-README.md` 仅含聚合数字与口径，`data/bridgegen-spec.example.json` 仅路径占位符。
 * **热门 Fabric mod 二进制**（Sodium / Iris / ImmediatelyFast / YACL /
   Xaero's Minimap / fabric-language-kotlin 等）：仅在本机 `/tmp` 下用于
   静态链接测量，**未复制进本仓库、未上传到任何下载通道**。其许可包含

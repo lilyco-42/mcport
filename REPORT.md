@@ -311,7 +311,7 @@ entityculling / fabric-api / reeses-sodium-options / noisium，全部从 Modrint
 
 ```
 mcport-跨版本兼容/
-├── REPORT.md                        本报告（§8 26.x / §13 语义漂移 / §14 装载编排机 / §15 严格 C 行迁移）
+├── REPORT.md                        本报告（§8 26.x / §13 语义漂移 / §14 装载编排机 / §15 严格 C 行迁移 / §16 人工桥工作台）
 ├── README.md                        上手
 ├── pipeline.sh                      常规版本流水线：声明表→映射表→扫描→重映射→校验→复测→工单
 ├── pipeline-26.sh                   26.x 专用流水线：ProGuard 建桥→继承/Mixin 改写→复测
@@ -325,6 +325,7 @@ mcport-跨版本兼容/
 │   ├── Verifier.java                重映射后字节码结构完整性闸门
 │   ├── HostBridge.java              宿主侧启动期桥（SIGCHG 旧签名转发，§9 / §11）
 │   ├── BodyHash.java                真实 jar 方法体指纹（§13）
+│   ├── CallKind.java                从 mod 字节码恢复 Methodref 的 invoke opcode（§16）
 │   └── McPortRuntime.java           启动期 -javaagent 兼容层（"寄生 Java 本身"）
 ├── tools/
 │   ├── mkdecl.py                    生成目标版本 API 声明表（以真实字节码为准）
@@ -336,6 +337,8 @@ mcport-跨版本兼容/
 │   ├── test_loader.py               §14 零外部数据 49 断言自包含回归
 │   ├── relocate.py                  §15 严格 C 行类迁移补充生成器
 │   ├── test_relocate.py             §15 零外部数据 27 断言自包含回归
+│   ├── bridgegen.py                 §16 SIGCHG/MISSING 人工桥工作台（零自动修复）
+│   ├── test_bridgegen.py            §16 零外部数据 61 断言自包含回归
 │   └── report.py                    JSON 报告 → 可执行迁移工单 markdown
 ├── demo/                            端到端最小复现（无需下载 MC）
 │   ├── run.sh                       A 正常 / B 炸 / C agent 救活 / D fail-loud
@@ -360,10 +363,13 @@ mcport-跨版本兼容/
     ├── relocate-summary.csv         §15 两版本严格迁移聚合
     ├── relocate-README.md           §15 口径 / 合规 / 踩坑
     ├── relocate-spec.example.json   §15 复现模板（路径占位符）
+    ├── bridgegen-summary.csv        §16 两版本 602 条工单分桶聚合
+    ├── bridgegen-README.md          §16 口径 / 合规 / 踩坑
+    ├── bridgegen-spec.example.json  §16 复现模板（路径占位符）
     └── NOTICE-mappings.md           ProGuard 映射许可提示（禁止分发完整未修改映射）
 ```
 
-复现（六步）：
+复现（七步）：
 
 ```bash
 # 1) 端到端演示：证明"炸"和"救活"（30 秒，无需 MC）
@@ -385,6 +391,9 @@ python3 tools/test_loader.py
 
 # 6) §15 严格 C 行迁移自包含回归（合成 decl/工单，27 断言）
 python3 tools/test_relocate.py
+
+# 7) §16 人工桥工作台自包含回归（合成 decl/工单/callkind，61 断言）
+python3 tools/test_bridgegen.py
 ```
 
 退出码约定：**0 = 全部可自动处理；2 = 存在 SIGCHG/MISSING，需人工介入。**
@@ -1151,6 +1160,122 @@ java -cp 'build:lib/*' mcport.LinkCheck --decl /path/to/decl-1.21.11.tsv --mod /
 * 把候选全集打印出来会截断输出（26.1 的 `<init>()V` 有 1765 个不同简单名候选），只打印计数。
 * 端到端脚本里 `assert delta[sigchg]==0` 断言写太严而失败：6 条诚实地转成 SIGCHG 属预期，非工具 bug。
 
+---
+
+## 16. SIGCHG 人工桥工作台：零自动修复的负结果（2026-11-15）
+
+§15 把 MISSING 里 48 条「同类换包」变成机械可解析后，8 份真实工单仍有
+**179 条 SIGCHG + 423 条 MISSING** 需人工。本章攻的是第一个桶：
+「同名不同描述符」能否自动生成 `HostBridge` 转发规则？结论是 **不能安全自动修**；
+交付物是把这个负结果变成可复现、可审计、fail-loud 的工作台，而不是补丁。
+
+### 16.1 需求边界与 /lyco ACQUIRE
+
+`gh search repos` 五个近义词 `minecraft host bridge agent` / `mixin signature adapter generator` /
+`minecraft descriptor change adapter` / `javaagent method bridge generator` /
+`minecraft sigchg remapper` 全部 0 hits（每个 `--limit 5`）；连续两轮空；
+japicmp / revapi / clirr 只做 API 签名级比较、不读方法体，fit < 50%。硬约束仍是
+「不分发 Mojang client jar / 官方映射 / 第三方 mod 二进制 + 猜不出来就拒绝」→ build 最小自研。
+与 §14/§15 一样，本章不承诺让 mod 跑起来，只把「哪一步能自动、哪一步必须人写」判干净。
+
+### 16.2 三个契约：工单丢 opcode、CallKind 恢复、HostBridge 六列
+
+1. `LinkCheck` 的 `writeJson` 固定五数组 `RESOLVE/RENAME/SIGCHG/MISSING/EXTERNAL`，
+   `collect` 用 ASM 收 Methodref / Fieldref / Type / Ldc / invokedynamic 后只留
+   `owner|name|desc` 三元组（JVMS §5.4.3 的链接身份），**丢掉 invoke opcode**。
+2. `HostBridge` 规则恰好 6 列 `owner / oldName / oldDesc / kind / adapterClass / adapterMethod`，
+   `kind` 只接受 `virtual`（注入实例方法，adapter 首参为宿主 this）或 `static`；
+   把 `invokevirtual` 猜成 static，解析期会抛 `IncompatibleClassChangeError`；
+   `interface` / `special` / `mixed`、`<init>`/`<clinit>` 一律不支持。
+3. 新增 `java/mcport/CallKind.java`：`ZipInputStream` + `ClassReader`（`SKIP_DEBUG|SKIP_FRAMES`），
+   在 `visitMethodInsn` 把 INVOKESTATIC / INVOKEVIRTUAL / INVOKEINTERFACE / INVOKESPECIAL
+   记成 static / virtual / interface / special，同一三元组多种 opcode 记 `mixed`，输出 4 列 TSV。
+   `--in`/`--out` 缺值显式抛异常，不再数组越界。
+4. `tools/bridgegen.py` 的 `Decl` 把 **M 与 F 分表**（`LinkCheck` 的 `findMember` 本来就是
+   `meth ? METHODS : FIELDS`），候选查找镜像父类链 + 接口 BFS；字段、构造、无候选、歧义全拒绝。
+   真实 decl 里 `class_8685.comp_1626` 同时是方法和字段，混表会误判歧义。
+
+### 16.3 602 条引用的分桶实测
+
+输入：§15 复测后的 8 份工单（4 个热门 mod × 1.21.11 / 26.1）、两张真实目标声明表、
+8 个已重映射 mod jar。命令与聚合产物见 §16.7 / `data/bridgegen-summary.csv`（17 列纯计数）。
+
+| 目标版本 | total | SIGCHG | MISSING | 唯一候选规则 | 不安全骨架引用 | 语义拒绝 | opcode 拒绝 | 构造 | 字段 | 歧义 | 无目标 | 重复 | auto_fixed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1.21.11 | 290 | 101 | 189 | 2 | 3 | 51 | 28 | 18 | 37 | 0 | 153 | 1 | 0 |
+| 26.1 | 312 | 78 | 234 | 2 | 3 | 30 | 30 | 16 | 34 | 5 | 194 | 1 | 0 |
+| **合计** | **602** | **179** | **423** | **4** | **6** | **81** | **58** | **34** | **71** | **5** | **347** | **2** | **0** |
+
+口径：`REJECT_NO_TARGET`（153 / 194）是 MISSING 在新 decl 找不到同名成员；
+`REJECT_UNPARSED` 两版本均为 0（旧版 16 列表头曾被误读成 153，修复后 17 列由
+`csv.DictReader` 逐列断言）。`REJECT_OPCODE` 含 interface / special / mixed；
+`SKELETON_MECHANICAL_UNSAFE` 是 triage 行数，去重后才是规则数。
+
+### 16.4 四条唯一候选，零自动修复
+
+镜像 `LinkCheck` BFS 后 138 条 SIGCHG 有唯一同名候选，但只有 6 条引用（去重成 4 条规则）
+满足「参数可转换 + 返回可转换」的纯机械形状：
+
+* `net/minecraft/class_1041.method_4495()D` → `()I`（i2d 扩宽）；
+* `net/minecraft/class_1144.method_4873(Lnet/minecraft/class_1113;)V` → 有返回值（pop 丢弃）；
+* `com/mojang/blaze3d/platform/Window.getGuiScale()D` → `()I`（i2d 扩宽）；
+* `net/minecraft/client/sounds/SoundManager.play(...SoundInstance;)V` → 有返回值（pop 丢弃）。
+
+**这四条全都不安全**：`double`→`int` 丢精度/改数值语义，void→有返回值会丢掉调用方
+本该消费的结果（demo E2 的 42→6 正是同名同签名语义漂移的教训）。因此
+`bridge-candidates.tsv` 文件头写死 `HUMAN REVIEW REQUIRED; never auto-load`；
+`adapters/*.java` 是可编译但方法体一律
+`throw new UnsupportedOperationException("MCPORT_HUMAN_REVIEW_REQUIRED ...")` 的骨架；
+只有显式 `--emit-rules` 才额外写可加载的 `bridge-rules.tsv`（语义由人确认并负责）；
+`stats.auto_fixed = 0` 是硬编码断言。**旧参数如何变成新调用是语义，机械推导不出来。**
+
+### 16.5 修复的五个真 bug（都写进 `tools/test_bridgegen.py` 的 61 断言）
+
+1. 方法正则 `(\(.*\))$` 要求描述符以右括号结尾，漏掉 `()V` / `(I)I` 的返回类型，
+   179 条 SIGCHG 全被误判「无候选」；正解 `^(.+?)\.([^.(]+)(\(.*\).*)$` 且字段单独一支。
+2. `Decl` 初版把 M/F 行混进一张表，`class_8685.comp_1626` 被误判歧义；分表后
+   602 条 triage 只有这一条从 `REJECT_AMBIGUOUS` 变为 `REJECT_SEMANTIC_CONVERSION`。
+3. 同一缺失符号出现在 2 个 mod 工单，旧版生成 6 条规则、2 个 adapter 各含重复的
+   `public static` 方法（javac 必然报错，`HostBridge` 注入重复签名会 `VerifyError`）；
+   按 `(owner,name,desc,newDesc,kind)` 去重后 4 条唯一规则，`duplicate_candidates=2`，
+   `adapters_for` 再加一道重复方法断言。
+4. `param_conv` 要用 `WIDEN.get(old, set())` 才不漏 B/S/C 的 int-family；
+   `return_conv` 方向写反会把 target double 到 legacy float 的窄化误当 widening，
+   已整体重写并明确只认 identity / JLS 5.1.2 widening。
+5. `CallKind.java` 的 `a[++i]` 无边界检查，缺值数组越界；补显式异常。
+
+### 16.6 本章收窄了什么、没有收窄什么
+
+收窄：把「SIGCHG 能否自动生成桥」从一句猜测变成 602 条逐条可审计的分桶、
+4 条候选 + 2 条重复 + 0 自动修复；补齐工单缺失的 opcode 维度；
+修正 M/F 分表与候选去重两个会产出坏字节码的真 bug。
+**没有收窄**：8 份工单复测后仍是 **179 SIGCHG + 423 MISSING** 需人工；
+§13 的语义漂移无法被静态工具彻底判定，Mixin refmap / `@Shadow` 声明名、反射字符串、
+真实客户端 / Fabric / LWJGL 端到端、26.x 需 JDK 25、`<init>` 与已删除成员，全部未解决。
+**四条候选不是补丁，不证明行为等价，更不证明能跑。**
+「全平台全版本任意 mod 都能跑」仍不可达；本章只是把「必须人工」的证据做实。
+
+### 16.7 复现与踩坑（自备制品，脚本不下载不入库）
+
+```bash
+python3 tools/test_bridgegen.py                 # 61 断言，合成 decl/工单/callkind，零外部数据
+javac -nowarn -cp 'lib/*' -d build java/mcport/*.java
+python3 tools/bridgegen.py --spec /work/spec.json --out-dir /work/gen --classes build --java java
+# 逐条人工审阅候选与抛异常骨架后，才考虑显式 --emit-rules
+```
+
+* 产物 `callkind.tsv` / `triage.tsv` / `bridge-candidates.tsv` / `adapters/*.java` /
+  `stats.json` / `summary.csv` 只写 `--out-dir`，含真实成员名的中间表不进仓库、不进发布包；
+  `data/` 只留 `bridgegen-summary.csv` 纯聚合 + 口径 + 路径占位模板。
+* 精确锚点替换必须先 dry-run 校验 `count=1`：缩进逐字不符会整批不落盘；
+  JS 模板字符串里内嵌 Markdown 反引号会直接编译失败（用占位符拼接）；
+  **最隐蔽的一条**：`String.replace(anchor, replacementString)` 会把 replacement 里的
+  `` $` `` 当成「插入匹配前缀」特殊模式，正则 `...)$` 后紧跟反引号就会把整段前文复制进替换串，
+  REPORT 曾因此从 87KB 膨胀到 350KB；replacement **必须写成函数** `() => text`。
+* 发布脚本的宽正则 `stats\.json$` 曾误伤自带的 `data/bridge-stats.json`；
+  与 §14/§15 同理，本章所有「可分发」判定都只认聚合数字，不认逐条符号表。
+
+
 
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
@@ -1170,4 +1295,7 @@ JEP 451 / Java SE 17 `java.lang.instrument.Instrumentation` 文档；工单计�
 §14 来自 `tools/loader.py` / `tools/test_loader.py` 在 5 个真实 client jar、4 个真实 mod 上的
 P1–P6 / S1–S7 实跑与 49 条自包含断言（2026-11-15；制品目录仅符号链接，输入字节不分发）。
 §15 来自 `tools/relocate.py` / `tools/test_relocate.py` 在 4 个热门 mod × 2 个目标版本的 8 份真实
-LinkCheck 工单、两张真实目标声明表上的生成 + RemapTool + 无 `--map` 复测实跑（2026-11-15；48 条接受、13 条误配未洗白；输入字节与映射均不分发，聚合数字见 `data/relocate-summary.csv`）。*
+LinkCheck 工单、两张真实目标声明表上的生成 + RemapTool + 无 `--map` 复测实跑（2026-11-15；48 条接受、13 条误配未洗白；输入字节与映射均不分发，聚合数字见 `data/relocate-summary.csv`）。
+§16 来自 `java/mcport/CallKind.java` / `tools/bridgegen.py` / `tools/test_bridgegen.py` 在 §15 复测后的
+8 份真实工单、2 份目标声明表、8 个已重映射 mod jar 上的实跑与 61 条自包含断言（2026-11-15；602 条引用、
+4 条唯一人工候选、`auto_fixed=0`；输入字节、callkind/triage/骨架均不分发，聚合数字见 `data/bridgegen-summary.csv`）。*
