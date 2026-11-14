@@ -35,6 +35,7 @@ case "$_cur_lc" in
 esac
 SRC=${1:?src version}; DST=${2:?dst version}; MODS=${3:?mods dir}
 LAST=${4:-1.21.11}
+[ -d "$MODS" ] || { echo "mods dir 不存在或不是目录: $MODS" >&2; echo "用法: bash pipeline-26.sh <srcVer> <dstVer> <modsDir> [lastVerWithProguard]" >&2; echo "  例: bash pipeline-26.sh 1.21.1 26.1 /tmp/mc/mods/batch" >&2; exit 1; }
 MCJARS=${MCJARS:-/tmp/mc/jars}
 INTERS=${INTERS:-/tmp/mc}
 MAPS=${MAPS:-/tmp/mc}

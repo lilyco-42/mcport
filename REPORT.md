@@ -477,11 +477,164 @@ Mixin 注解改写前后 LinkCheck 数字完全一致，因为它修的是字符
    因此 `data/` **只归档测量 CSV、统计与复现脚本**，不分发 `bridge-26.tsv` 或原始 `map-*.txt`。
    复现者需自行从 Mojang 官方途径取得映射，见 `data/NOTICE-mappings.md`。
 
+
 ---
+
+## 9. 宿主侧兼容桥 HostBridge：把 SIGCHG 从「列出来」推到「能链接」
+
+> 本章是 m01283「继续」之后的增量工作。**它只推进机械链接层，不推翻 §7 的任何边界。**
+
+### 9.1 动机：工单里最大的可动块是「名字还在、描述符变了」
+
+4 个新增热门 mod 的 8 份 `LinkCheck --json` 工单（`data/hotmods/`）按
+`details` 合计：**RESOLVE 1674 / RENAME 0 / SIGCHG 173 / MISSING 477 / EXTERNAL 56**。
+RENAME 为 0 是因为这些 jar 已过离线重映射；剩下两类硬骨头里，SIGCHG 的形态高度一致：
+
+```
+com/mojang/blaze3d/systems/RenderSystem.setProjectionMatrix(Lorg/joml/Matrix4f;Lnet/minecraft/class_8251;)V
+  # name kept by com/mojang/blaze3d/systems/RenderSystem, descriptor changed
+com/mojang/blaze3d/systems/RenderSystem.setShaderLights(Lorg/joml/Vector3f;Lorg/joml/Vector3f;)V
+  # name kept by ..., descriptor changed
+net/minecraft/class_1043.<init>(IIZ)V
+  # name kept by net/minecraft/class_1043, descriptor changed
+```
+
+§1 第 1 层已经写明 JVMS §5.4.3 按 **类名 + 成员名 + 描述符** 精确链接。于是
+`McPortRuntime` 那套「改 mod 侧引用名」的天花板非常清楚：名字改对了，描述符还是旧的，
+一样抛 `NoSuchMethodError`。demo 场景 E1 用最小复现把它变成可断言的事实：
+
+```
+-- E1. 纯改名路线 (C) 在连签名都变了的版本上失效 --
+[mcport] map loaded: class=0 method=1 field=0 super=0
+Exception in thread "main" java.lang.NoSuchMethodError: 'int net.mc.World.getBlockState(int, int, int)'
+   (退出码 1 ; 报错里是 getBlockState(III)I —— 名字改对了, 描述符仍对不上)
+```
+
+源 mod 写死 `getBlock(III)I`；目标版本只有 `getBlockState(BlockPos)I`。
+把名字改成 `getBlockState` 之后，JVM 找的是 **`getBlockState(III)I`**，仍不存在。
+
+### 9.2 反方向：不改 mod，改宿主
+
+`/home/lilyco/文档/deepseek-harness/default-workspace/mcport-跨版本兼容/java/mcport/HostBridge.java` 是第二条正交路线：
+在**目标版本游戏类定义之前**注入一个旧签名的转发壳，让旧引用能链接上；真正的语义落在
+普通人写的静态适配器里（demo 为 `demo/src/adapter/demo/BlockAdapter.java`）。
+
+规则表 `-Dmcport.bridge=<file>` 每行 6 列（TAB）：
+
+```tsv
+# owner  oldName  oldDesc  kind  adapterClass  adapterMethod
+net/mc/World	getBlock	(III)I	virtual	demo/BlockAdapter	getBlock
+```
+
+`kind=virtual` 时适配器首参自动补宿主 `this`，描述符由工具推导为
+`(Lnet/mc/World;III)I`；`kind=static` 则不补。参数槽位按 `Type.getSize()` 累加
+（long/double 占 2 槽），返回值按 `getOpcode(IRETURN)` 或 `RETURN` 处理。
+`visitEnd()` 注入前先扫一遍宿主已有方法，撞名同描述符直接跳过（否则 `VerifyError`）。
+`<init>` / `<clinit>`、规则表为空、列数不对、kind 非法一律 fail-loud。
+**语义适配体不自动生成**：旧参数如何变成新调用是语义，机械推导不出来，猜错就是静默错误。
+
+实测（demo E2，JDK 17.0.20.1）：
+
+```
+-- E2. 同一份 mod jar + 宿主侧桥 -> 跑通 (mod 零改动) --
+mod started on MC 1.21.1-SIGCHG -> block=6
+   mod jar sha1: 3796a161a6a9bd31460de4e163375b5ff16add3f
+   注意: 源版本 getBlock(1,2,3)=42, 这里=6 -> 名字与描述符都链接上了, 语义仍变了 (§1 第 3 层)
+```
+
+注意 `42 → 6` **不是 bug，是刻意设计的证据**：源版本 `getBlock` 固定返回 42，
+新版本 `getBlockState(new BlockPos(1,2,3))` 返回 6。名字与描述符都链接上了、进程正常退出，
+行为却已经不同 —— 这正是 §1 第 3 层「语义漂移静态不可检测」的最小可执行演示。
+HostBridge 把「链接不上」推进到「链接得上」，但把「行为对不对」明确交还给人。
+
+### 9.3 时序铁律：必须在类定义前，不能运行时补
+
+scratch 实验（`/tmp/bridge-exp`）与 demo E3 都验证同一条 JVM 约束：
+pre-define 阶段的 `ClassFileTransformer` 可以新增方法；类**已加载**后调用
+`Instrumentation.retransformClasses` 再新增方法，HotSpot 直接拒绝：
+
+```
+-- E3. 时序铁律: 类已加载后 retransform 加方法被 HotSpot 拒绝 --
+loaded net.mc.World methods=2
+EXPECTED (HotSpot): UnsupportedOperationException: class redefinition failed: attempted to add a method
+   => 宿主桥必须在类定义前 (-javaagent premain) 注入, 不能运行时补
+```
+
+首版探针试图反射 `sun.instrument.InstrumentationImpl`，被 JPMS 挡下
+（`IllegalAccessException: module java.instrument does not export sun.instrument to unnamed module`），
+改用导出的 `java.lang.instrument.Instrumentation` 接口才得到上面这条真正的 JVM 错误。
+因此 `HostBridge` **故意不注册** `canRetransform=true`，`redefined != null` 时打印
+`REFUSE retransform of already-loaded ...` 并原样放过，绝不制造「以为加上了」的错觉。
+这与 JEP 451 的边界一致：原文写明
+*"It is not a goal to prevent agents from being loaded at JVM startup via the -javaagent or -agentlib command-line options, nor to issue warnings upon such use."*
+—— 长期合法的寄生方式仍只有启动期 `-javaagent`，动态 attach 不在路线内。
+
+### 9.4 可复现性：修掉 demo 自己的两个真 bug
+
+1. **退出码显示错**：E1 初版写 `E1=$(cmd | head -3)` 后取 `${PIPESTATUS[0]}`，
+   捕获的是赋值语句的状态，把 java 崩溃错显示成「退出码 0」。改为重定向到
+   `build/e1.out` 后取 `$?`，并新增断言 `[ "$E1RC" -ne 0 ]`。E2/E3 同样改为
+   临时文件 + 显式 `-eq 0` 断言，脚本不再靠 `grep` 字符串隐式判成功。
+2. **jar 时间戳漂移**：`jar cf` 每次写入当前时间，导致 demo 连跑两遍 4 个受版本控制的
+   jar 全部变脏、sha1 变化，与「可复现分发包」自相矛盾。改用 JDK 17+ 的
+   `jar --date=2026-11-14T00:00:00Z`（`jar --help | grep -- '--date='` 探测，缺失时降级）。
+   实测连跑两遍，5 个 jar 的 sha256 逐行一致：
+
+```
+778532aea2b46269f2892e247c97cda66e5b5c1b2d012556cabe47b0504723ff  api-v1.jar
+e3353f5f6f82f1560976c8a16b8a14dce4d63a60569712f107b9a49ac5294898  api-v2.jar
+f8bf088c2e83d4c718edf9482d05ca8ac6073a991e19dc90452cc92990df14fb  api-v2b.jar
+60c0bc871848fb30c69aa68589dfac4268989662173ebc3c431969e9d0153423  mod-1.20.1.jar
+f3f4aa8852806cd59fdfb7e2f8078171b8533157ef38b420b7b94b3bc23457ac  mcport-runtime.jar
+```
+
+全量 `javac -nowarn -cp 'lib/*' -d build java/mcport/*.java` 通过（22 个 class，
+含新增 `HostBridge.class`），`demo/run.sh` 两遍 `FINAL_EXIT=0`、末尾 `OK`。
+
+### 9.5 边界：这一章**没有**解决什么
+
+1. **173 条 SIGCHG 一条都还没被真实修复**。`demo/bridge-v2b.tsv` 只有一个玩具规则，
+   真实条目的适配器需要逐条读上游源码/反编译、确认参数语义、写测试；本仓库不含这些适配器。
+2. **477 条 MISSING 不在能力范围内**。`RenderSystem.disableBlend()V # member gone`、
+   `GlStateManager._activeTexture(I)V # owner class gone` 这类没有可转发的目标，
+   生成转发壳只会把链接期错误推迟成运行期错误，反而更糟。工具选择不去碰它们。
+3. **`<init>` 明确不支持**：构造器改变意味着对象布局/初始化契约变了，不是加个壳能糊过去的；
+   工单里 `class_1043.<init>(IIZ)V`、`RenderTarget.<init>(Z)V` 都属此类，仍需改 mod。
+4. **语义漂移（§1 第 3 层）依旧不可检测**。E2 的 42→6 是明证；同名同签名行为变化
+   连静态扫描都不会报，HostBridge 更不会。
+5. **仍未在真实 Minecraft 客户端端到端**，26.x 仍需 JDK 25 / class major 69（§7 第 4 条）。
+   本章全部结论来自等价最小复现 + JVM 规范/实测，不证明任何 14 mod 或 4 热门 mod 能跑。
+6. **宿主侧改写与 mod 侧改写不能自动叠加**：两个 agent 都注册 `ClassFileTransformer`，
+   顺序、`DEFAULT_SKIP` 前缀、共享 `Mapping` 状态都需要一次显式编排；
+   本章只分别验证各自单独生效，没有验证同进程双 agent 组合。
+
+**净结论**：跨版本失效里「符号链接不上」这一层，可以从「约 80% 可静态解析」再往前推到
+「SIGCHG 有可运行的机械适配路线」；但「任意版本都有效」仍然不可达，
+因为语义与已删除成员这两层与 JVM 链接机制无关，加载器补不出来。
+
+---
+
+## 10. 发布前隔离 smoke：两个交付链 bug
+
+0.1.1 发布前，把工作区复制到 `/tmp/mc-port-smoke`（排除 `.git` / `build` / `*.class`），
+模拟「用户刚 clone 仓库、直接按 README 跑」。两条流水线各暴露一次真实交付问题：
+
+| 脚本 | 首次 smoke | 根因 | 修复与复跑 |
+| --- | --- | --- | --- |
+| `pipeline.sh` | 第 3 步 `ClassNotFoundException: mcport.LinkCheck`，exit 1 | 全新 clone 没有 `build/`，但 8 个步骤都用 `java -cp "build:$ASM"`；`pipeline-26.sh` 有 1/9 编译，常规脚本漏了 | 新增 0/8 `javac -nowarn -cp 'lib/*' -d build java/mcport/*.java` 与 `[ -d "$MODS" ]` 自检。复跑 8 步全通：1162 judged / **319 需人工**（SIGCHG 99 + MISSING 220），按约定 exit 2 |
+| `pipeline-26.sh` | 误传 `1.21.1 1.21.11 26.1 <modsDir>`，报 `缺少 intermediary jar: /tmp/mc/hot/remapped-26.1` | 用法是 `<srcVer> <dstVer> <modsDir> [lastVerWithProguard]`，第 3 参必须是目录；误把 `26.1` 当 modsDir 后触发的是下一层报错 | 加 `[ -d "$MODS" ]` fail-loud 并打印正确用法。按 `1.21.1 26.1 /tmp/mc/hot/remapped-26.1 1.21.11` 复跑 9 步全通：1162 judged / **331 需人工**（SIGCHG 74 + MISSING 257），exit 2 |
+
+**`exit 2` 不是失败**：它是 §3.1 / README 约定的「仍有 SIGCHG/MISSING 需人工」闸门。
+本次只修交付链的可复现性，不改变任何兼容性结论；§9.5 的 6 条边界全部不变。
+教训：README 写「可直接进 CI」时，CI 既不能依赖预编译产物，也不能让错参数穿透到第二步才报无关错误。
 
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
 （官方 ProGuard 映射 × Fabric intermediary × 26.1 client jar × 14 个 Modrinth mod 字节码，2026-11-14）。
 §4 / §8 的 4068 条统一口径与 91 条 `com/mojang/` 独立库豁免，来自 2026-11-14 二次修正后的
-四条流水线实跑（`/tmp/mcport-work-{self2,fwd2,back2,26b}/out/`），`data/` 内 CSV 已同步重生成。*
+四条流水线实跑（`/tmp/mcport-work-{self2,fwd2,back2,26b}/out/`），`data/` 内 CSV 已同步重生成。
+§9 的时序约束来自本机 HotSpot 17.0.20.1 实测与
+JEP 451 / Java SE 17 `java.lang.instrument.Instrumentation` 文档；工单计数来自
+`data/hotmods/*.json` 的 `details` 数组（2026-11-14）。
+§10 来自隔离目录 `/tmp/mc-port-smoke` 的两条流水线实跑日志（2026-11-14，输入为 4 个热门 mod 的重映射样本）。*

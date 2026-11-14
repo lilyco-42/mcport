@@ -27,6 +27,13 @@ case "$_cur_lc" in
 esac
 SRC=${1:?src version}; DST=${2:?dst version}; MODS=${3:?mods dir}
 WORK=${WORK:-/tmp/mcport-work}; mkdir -p "$WORK/remapped" "$WORK/out"
+# 全新 clone 后 build/ 不存在：先编译，否则第 3 步会 ClassNotFoundException。
+# pipeline-26.sh 在 1/9 输入自检 + 编译做同样的事。
+[ -d "$MODS" ] || { echo "mods dir 不存在或不是目录: $MODS" >&2; echo "用法: bash pipeline.sh <srcVer> <dstVer> <modsDir>" >&2; exit 1; }
+mkdir -p build
+echo "== 0/8 编译 McPort 工具（全新 clone 必需）=="
+javac -nowarn -cp 'lib/*' -d build java/mcport/*.java
+echo "  javac OK (LinkCheck / RemapTool / Verifier / MixinCheck / HostBridge)"
 ASM=$(ls lib/asm-*.jar | tr "\n" ":")
 JARS=${MCJARS:-/tmp/mc/jars}   # REAL-<ver>.jar（client jar）
 INTERS=${INTERS:-/tmp/mc}      # i-<ver>.jar / inter-<ver>.jar（intermediary jar）

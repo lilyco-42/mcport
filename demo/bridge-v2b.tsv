@@ -1,0 +1,3 @@
+# HostBridge rule: owner  oldName  oldDesc  kind  adapterClass  adapterMethod
+# 在 net/mc/World 定义前注入 getBlock(III)I，转发到 demo/BlockAdapter.getBlock(World,III)I
+net/mc/World	getBlock	(III)I	virtual	demo/BlockAdapter	getBlock
