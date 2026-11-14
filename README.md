@@ -39,6 +39,8 @@ bash demo/run.sh
 | `MixinRewriter` / `MixinCheck` | 改写 / 统计 Mixin 注解里残留的 intermediary 字符串 | `mcport.MixinCheck remapped/*.jar` |
 | `tools/bridge.py` | 官方 ProGuard × Fabric intermediary → `inter → 真实名` 桥 | `python3 tools/bridge.py --proguard map.txt --intermediary i.jar --out b.tsv --tsv` |
 | `tools/bridge26.py` | 版本择一 + 目标感知重定位 + S 行父类链，产 26.x 专用表 | `python3 tools/bridge26.py --bridge a.tsv --bridge b.tsv --src-decl s.tsv --dst-decl d.tsv --out m.tsv` |
+| `tools/loader.py` | 版本无关的装载编排机：分代 → 选装配路线 → 符号预言机 → fail-loud | `python3 tools/loader.py --repo . --target REAL-X.jar --mod a.jar --check` |
+| `tools/test_loader.py` | 零外部数据的 49 断言自包含回归 | `python3 tools/test_loader.py` |
 
 HostBridge 规则表每行 6 列（TAB 分隔）：`owner / oldName / oldDesc / virtual或static / adapterClass / adapterMethod`。
 适配器描述符由工具自动推导，人只写普通 Java 语义适配方法；`<init>`/`<clinit>`、重复签名、空表一律 fail-loud。
@@ -85,7 +87,8 @@ bash pipeline-26.sh 1.21.1 26.1 /path/to/mods
 **所以："任意版本都有效"不可达。** 常规版本可达的是"~80% 自动 + ~20% 精确列出 + 100% fail-loud"；
 26.x 是更低的 78.7% 静态天花板且附带额外硬缺口。
 详见 REPORT.md §4、§7（诚实的边界声明）、§8（26.x 攻坚）、§9（宿主侧兼容桥 / SIGCHG）、
-§11（双 agent 组合）、§12（JRE 25 × 真实 26.1 类）与 §13（真实 jar 语义漂移量化）。
+§11（双 agent 组合）、§12（JRE 25 × 真实 26.1 类）、§13（真实 jar 语义漂移量化）与
+§14（版本无关的装载编排机）。
 
 ## 可选：真实 26.1 类 × JRE 25（REPORT §12）
 
@@ -126,12 +129,37 @@ python3 tools/drift_align.py --repo . --spec /work/drift-spec.json --out-dir /wo
 映射文本或任何 Mojang 字节（见 `data/NOTICE-mappings.md`）。
 GH 同类工具（japicmp / revapi / clirr）只比 API 签名、不读方法体，fit < 50%，故本轮自研最小预言机。
 
+## 版本无关的装载编排机（REPORT §14）
+
+`tools/loader.py` 不是 Minecraft 启动器，也不是「任意 mod 都能跑」的万能加载器：
+它输入 `(mod jar, 目标 client jar)`，只读 jar 结构与 `version.json` 判 `obf / deobf / non_jvm`，
+自动选三条已验证路线——同版本/无游戏引用不挂 agent；混淆期跨版用启动期
+`-javaagent:mcport-runtime.jar -Dmcport.map=...`；26.x 断代先 `RemapTool` 离线重映射、
+再对真实名声明表无 `--map` 复测、**不挂 agent**——然后跑 `LinkCheck` 写逐条工单，
+生成启动包装脚本；缺制品 / Java 不匹配 / native / 异加载器 / 非 JVM / 需人工 / 未 `--check`
+一律 `REFUSE ... exit 2`。游戏启动命令由使用者用 `MCPORT_LAUNCH_CMD` 提供。
+
+```bash
+python3 tools/test_loader.py   # 零外部数据、零 Mojang 字节、零网络；49 断言
+python3 tools/loader.py --repo . --target /path/to/REAL-26.1.jar \
+  --mod /path/to/mod.jar --java /path/to/jre25/bin/java \
+  --source 1.21.1 --artifacts /path/to/decl-map-bridge \
+  --check --tickets /tmp/tickets --out plan.json --emit-script launch.sh
+```
+
+本机实跑：5 个真实 client jar（1.20.1 / 1.21.1 / 1.21.11 / 26.1 / 26.3）+ 4 个真实 mod
+的 P1–P6 路由与 S1–S7 装配/预言机场景；`RESULT ALL_OK 49`。制品需自备，
+仓库与发布包不含 client jar、映射表或 mod 二进制（见 `data/NOTICE-mappings.md`）。
+**边界**：不启动 Fabric / 真实客户端，不覆盖 Bedrock、native、Mixin refmap / `@Shadow`、
+反射字符串、已删除成员与语义漂移；「全平台全版本任意 mod 都能跑」仍不可达。详见 REPORT §14.7。
+
 ## 构建
 
 ```bash
 mkdir -p build lib
 # 需要 ASM 9.9（读 Java 25 / class major 69 必需）
 javac -nowarn -cp 'lib/*' -d build java/mcport/*.java   # 含 §13 的 BodyHash
+python3 tools/test_loader.py                            # §14 编排机 49 断言回归
 ```
 
 > **CI 注意**：若 `LANG`/`LC_ALL` 为空，JDK 用 `ANSI_X3.4-1968` 解码路径，中文目录会让 `javac`

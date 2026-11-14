@@ -1,0 +1,15 @@
+# mcport loader aggregate scenarios (local measurements only; no client jar / map / mod bytes)
+scenario,target,target_java,runtime_java,generation,mods,auto,plan_only,manual,unsupported,missing_artifacts,route,strategy,verdict,total,resolve,sigchg,missing,ceiling,rc
+P1,1.21.1,21,21,obf,4,0,4,0,0,0,,,,,,,,,0
+P2,1.21.11,21,21,obf,4,0,4,0,0,0,,,,,,,,,0
+P3,1.20.1,17,17,obf,4,0,2,0,2,0,,,,,,,,,1
+P4,26.1,25,17,deobf,4,0,0,0,4,0,,,,,,,,,1
+P5,26.1,25,25,deobf,4,0,4,0,0,0,,,,,,,,,0
+P6,26.1,25,25,deobf,4,0,1,0,0,3,,,,,,,,,1
+S1,1.21.11,21,21,obf,1,0,0,1,0,0,OBF_CROSS,startup,NEEDS_MANUAL,155,78,13,56,50.3,2
+S2,26.1,25,25,deobf,1,0,0,1,0,0,DEOBF_BREAK,offline,NEEDS_MANUAL,155,86,9,52,55.5,2
+S3,26.1,25,25,deobf,1,0,0,0,1,0,DEOBF_BREAK,startup,UNSUPPORTED,,,,,,1
+S4,26.1,25,25,deobf,1,1,0,0,0,0,NO_GAME_REFS,none,AUTO,0,0,0,0,0,0
+S5,1.21.11,21,21,obf,1,0,1,0,0,0,OBF_CROSS,startup,PLAN_ONLY,,,,,,0
+S6,26.1,25,25,deobf,1,0,0,0,0,1,DEOBF_BREAK,offline,MISSING_ARTIFACT,,,,,,1
+S7,1.21.1,21,21,obf,1,1,0,0,0,0,SAME_VERSION,none,AUTO,9,9,0,0,100,0

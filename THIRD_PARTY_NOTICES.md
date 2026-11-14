@@ -43,6 +43,10 @@ https://asm.ow2.io/ ，许可原文 https://asm.ow2.io/license.html ：
   `MC_26_1_JAR` 抽取**一个** `com/mojang/blaze3d/GpuOutOfMemoryException.class` 到被
   `.gitignore` 忽略的 `demo/build/real26/`；本仓库、Git 历史与分发包均不含任何 Mojang 类字节，
   亦不随包提供 26.1 client jar。
+* **装载编排机 §14 的输入**：`tools/loader.py` 只在运行时读使用者自备的 client jar、
+  `decl-*.tsv` / `map-*.tsv` / `bridge-*.tsv` 与 mod jar；`tools/test_loader.py` 用 tempfile
+  合成等价假输入。两者都不下载、不复制、不内嵌 Mojang 类字节、官方映射或第三方 mod 字节码；
+  生成的 plan / 工单只留在 `--out` / `--tickets` 指定目录。
 * **热门 Fabric mod 二进制**（Sodium / Iris / ImmediatelyFast / YACL /
   Xaero's Minimap / fabric-language-kotlin 等）：仅在本机 `/tmp` 下用于
   静态链接测量，**未复制进本仓库、未上传到任何下载通道**。其许可包含

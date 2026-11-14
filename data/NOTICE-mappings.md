@@ -27,4 +27,7 @@
 - `$MCJARS/inter-<ver>.jar` 或 `i-<ver>.jar`：Fabric intermediary jar。
 
 脚本只读取这些路径，**不会下载、不会复制进本仓库、也不会写进 `data/`**。
+§14 的 `tools/loader.py` 同理：用 `--artifacts` 指向自备目录，按 `decl-<ver>.tsv` /
+`map-<src>-<dst>.tsv` / `bridge-<ver>.tsv` 命名查找，缺表即 `MISSING_ARTIFACT` 拒绝装配；
+`tools/test_loader.py` 只合成等价的空/短表做回归，仓库与发布包均不含真实映射行。
 ASM 9.9 为 BSD-3-Clause；本工具链不与任何 GPL 项目有代码往来。

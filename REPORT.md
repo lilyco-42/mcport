@@ -311,7 +311,7 @@ entityculling / fabric-api / reeses-sodium-options / noisium，全部从 Modrint
 
 ```
 mcport-跨版本兼容/
-├── REPORT.md                        本报告（§8 = 26.x 去混淆断代攻坚）
+├── REPORT.md                        本报告（§8 26.x 攻坚 / §13 语义漂移 / §14 装载编排机）
 ├── README.md                        上手
 ├── pipeline.sh                      常规版本流水线：声明表→映射表→扫描→重映射→校验→复测→工单
 ├── pipeline-26.sh                   26.x 专用流水线：ProGuard 建桥→继承/Mixin 改写→复测
@@ -323,12 +323,17 @@ mcport-跨版本兼容/
 │   ├── MixinCheck.java              注解残留维度的第二静态预言机
 │   ├── AnnotationDump.java         真实注解格式采样器
 │   ├── Verifier.java                重映射后字节码结构完整性闸门
+│   ├── HostBridge.java              宿主侧启动期桥（SIGCHG 旧签名转发，§9 / §11）
+│   ├── BodyHash.java                真实 jar 方法体指纹（§13）
 │   └── McPortRuntime.java           启动期 -javaagent 兼容层（"寄生 Java 本身"）
 ├── tools/
 │   ├── mkdecl.py                    生成目标版本 API 声明表（以真实字节码为准）
 │   ├── mkmap.py                     生成 intermediary 身份的重映射表
 │   ├── bridge.py                    官方 ProGuard × Fabric intermediary → inter→真实名桥
 │   ├── bridge26.py                  版本择一 + 目标感知重定位 + S 行父类链
+│   ├── drift_align.py               §13 官方 ProGuard 真实名身份对齐 + 聚合
+│   ├── loader.py                    §14 版本无关装载编排机（分类 / 装配 / 预言机 / fail-loud）
+│   ├── test_loader.py               §14 零外部数据 49 断言自包含回归
 │   └── report.py                    JSON 报告 → 可执行迁移工单 markdown
 ├── demo/                            端到端最小复现（无需下载 MC）
 │   ├── run.sh                       A 正常 / B 炸 / C agent 救活 / D fail-loud
@@ -345,10 +350,15 @@ mcport-跨版本兼容/
     ├── MIGRATION-iris-1.21.1-to-1.21.11.md   逐符号人工工单（示例，二次修正后重生成）
     ├── MIGRATION-sodium-1.21.1-to-1.21.11.md 同上
     ├── README-26.1.md               26.x 口径、复现命令、硬缺口
+    ├── drift-summary.csv            §13 四版真实 jar 语义漂移聚合
+    ├── drift-README.md              §13 口径与踩坑
+    ├── drift-spec.example.json      §13 复现模板（路径占位符）
+    ├── loader-scenarios.csv         §14 13 组实跑聚合（P1–P6 / S1–S7）
+    ├── loader-README.md             §14 聚合口径与不分发声明
     └── NOTICE-mappings.md           ProGuard 映射许可提示（禁止分发完整未修改映射）
 ```
 
-复现（四步）：
+复现（五步）：
 
 ```bash
 # 1) 端到端演示：证明"炸"和"救活"（30 秒，无需 MC）
@@ -364,6 +374,9 @@ bash pipeline.sh 1.21.1 1.21.11 /path/to/mods
 
 # 4) 26.x 去混淆断代专用链路（需本地官方 ProGuard 映射，脚本不会打包/分发它）
 bash pipeline-26.sh 1.21.1 26.1 /path/to/mods
+
+# 5) §14 装载编排机自包含回归（零外部数据、零 Mojang 字节、零网络）
+python3 tools/test_loader.py
 ```
 
 退出码约定：**0 = 全部可自动处理；2 = 存在 SIGCHG/MISSING，需人工介入。**
@@ -879,6 +892,133 @@ python3 tools/drift_align.py --repo . --spec /work/drift-spec.json --out-dir /wo
 ⑤ 混淆↔去混淆的 `call` 列不可比，保守关闭以免把命名断代误报成实现变化。
 
 
+## 14. 版本无关的装载编排机：分类 → 装配 → 预言机 → fail-loud
+
+### 14.1 需求边界与 /lyco ACQUIRE（为什么不是「再造一个 Fabric」）
+
+新目标「做好全平台全版本 mod 加载机器」若按字面理解为**任意平台、任意 MC 版本、任意 mod 都能直接运行**，
+与 §1 三层机制、§2 fit 矩阵、§7 边界、§8 的 26.x 断代、§13 的语义漂移量化直接冲突：
+Bedrock 是 C++ 无 JVM 字节码；同名同签名方法体的 85.8%–95.4% 指纹全同区间静态判不干净；
+成员被删除（477 条 MISSING）没有可转发目标。因此**不谎称做出字面意义的万能加载器**。
+本轮交付的是可实现的等效物：一台**与 MC 版本无关的装载编排机** `tools/loader.py`，
+输入任意 `(mod jar, 目标 client jar)`，不查版本白名单，靠 jar 结构与 `version.json` 自动分代，
+选择已被验证的装配路线，跑符号预言机，写出结构化 plan / 逐条工单 / 启动包装脚本，
+并在不支持、缺制品、需人工、未 check 时一律 fail-loud。它**不是** Minecraft 启动器，
+不生成游戏启动命令，`MCPORT_LAUNCH_CMD` 必须由使用者自己的启动器提供。
+
+按 /lyco 的 gh 近义词循环实跑（2026-11-15，账号 lilyco-42）：
+`universal minecraft mod loader` / `cross version mod loader` / `platform agnostic mod launcher` /
+`javaagent minecraft launcher` 四个词均 0 命中；`version independent mod loader` 只命中
+`FabricMC/fabric-loader`（903★，pushed 2026-10-19，desc "Fabric's mostly-version-independent mod loader."）
+与两个 0★ fork。复核 `Sinytra/Connector`（762★，只把 Fabric mod 接到 NeoForge）、
+`GeyserMC/Geyser`（5967★，Bedrock→Java 协议代理）、`ViaVersion/ViaVersion`（1654★，只做网络协议）。
+无 ≥80% fit 且活跃的 adopt 候选；硬约束是「不分发 Mojang client jar / 映射 / 第三方 mod 二进制，
+且必须 fail-loud 而非静默猜名」，故 **build** 最小编排层，复用仓库已有的 `LinkCheck` / `RemapTool` /
+`McPortRuntime` / `HostBridge`，不引入新的运行时依赖。
+
+### 14.2 分代判据：只读 jar 结构，不加载类、不查版本表
+
+`probe_client()` 读 `version.json` 的 `id / java_version / protocol_version / world_version`，
+统计 `net/minecraft/<pkg>/` 层级真实类 `nm_hier`、jar 根级短名类 `root_short`、首个 `.class` 的 major，
+按 `nm_hier/classes ≥ 0.5` 判 `deobf`、`root_short/classes ≥ 0.5` 判 `obf`、
+`classes=0` 判 `non_jvm`、其余 `unknown`。`CLASS_MAJOR_JAVA = {61:17, 65:21, 69:25}` 只作环境门槛。
+五个真实 client jar 实跑：
+
+| target | classes | major | java | protocol | nm_hier / ratio | root_short | generation |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 1.20.1 | 7436 | 61 | 17 | 763 | 25 / 0.0034 | 7388 | obf |
+| 1.21.1 | 8269 | 65 | 21 | 767 | 26 / 0.0031 | 8220 | obf |
+| 1.21.11 | 10291 | 65 | 21 | 774 | 33 / 0.0032 | 10201 | obf |
+| 26.1 | 10682 | 69 | 25 | 775 | 10187 / 0.9537 | 0 | deobf |
+| 26.3 | 11383 | 69 | 25 | 777 | 10715 / 0.9413 | 0 | deobf |
+
+`probe_mod()` 读 `fabric.mod.json` / `neoforge.mods.toml` / `mods.toml`，
+统计 `class_|method_|field_[0-9]+` 与 `net/minecraft/<小写包>/<类>` 字节、Mixin 配置、
+`.dll/.so/.dylib/.jnilib/.exe` native 文件、声明的 `minecraft` / `java` 依赖。
+7 个真实样本（c2me / cloth-config / entityculling / ImmediatelyFast / fabric-language-kotlin /
+xaerominimap / yacl）均为 `loader=fabric`、native=0；`fabric-language-kotlin` 0 条游戏引用。
+
+### 14.3 决策矩阵与三套已验证装配路线
+
+| route | 条件 | strategy | 装配 / 预言机口径 | verdict |
+|---|---|---|---|---|
+| `SAME_VERSION` | mod 声明的 MC 与目标 `id` 相符 | `none` | 不挂 agent；`LinkCheck --map` 自检 | AUTO / NEEDS_MANUAL |
+| `NO_GAME_REFS` | 0 条游戏引用（如纯 Kotlin 运行时） | `none` | 不挂 agent；空工单 | AUTO |
+| `OBF_CROSS` | 混淆期跨版（1.20.1–1.21.11） | `startup` | `-javaagent:mcport-runtime.jar -Dmcport.map=map-<src>-<dst>.tsv`，`LinkCheck --map`（`pipeline.sh` 工单口径） | AUTO / NEEDS_MANUAL |
+| `DEOBF_BREAK` | 26.x 去混淆断代 | `offline` | **先** `RemapTool --map bridge-<dst>.tsv`，再对重映射 jar 用真实名 `decl-<dst>.tsv` **不给 --map** 复测（`pipeline-26.sh` 口径）；**不挂 agent** | AUTO / NEEDS_MANUAL |
+| `RUNTIME_JAVA_MISMATCH` / `NATIVE_BOUND` / `UNSUPPORTED_LOADER` / `UNSUPPORTED_NON_JVM` / `UNKNOWN_GENERATION` | Java 不匹配 / native / 非 Fabric / 非 JVM / 无法分代 | — | 拒绝装配，`jvmArgs=[]` | UNSUPPORTED |
+| `MISSING_ARTIFACT` | 缺 `decl-*.tsv` / `map-*.tsv` / `bridge-*.tsv` | — | 拒绝无映射表装配 | MISSING_ARTIFACT |
+
+退出码：`0` 全部可装配（AUTO / PLAN_ONLY）、`2` 有 SIGCHG+MISSING 需人工、`1` 不支持 / 缺制品 / 检查失败。
+`--emit-script` 生成 Bash 包装，只从 `verdict in (AUTO, PLAN_ONLY)` 收集 `JVM_ARGS`，
+要求外部设置 `MCPORT_LAUNCH_CMD`；**硬错误优先**：`manual / unsupported / missing_artifacts` 任一非 0
+或存在非 AUTO/PLAN_ONLY 项 → `REFUSE ... exit 2`；否则若未跑 `--check` → 再次 `REFUSE`；
+只有全部 AUTO 且已 check 才 `exec "$MC_JAVA" "${JVM_ARGS[@]}" $MCPORT_LAUNCH_CMD`。
+
+### 14.4 七场景实跑（真实 client jar + 真实 mod，2026-11-15）
+
+制品目录 `/tmp/mcport-loader-art` 只放 8 个指向本机 `decl/map/bridge` 的符号链接，不含 Mojang 字节。
+
+| 场景 | target / java | mod | route / strategy | 关键结果 | rc |
+|---|---|---|---|---|---:|
+| S1 | 1.21.11 / JDK21 | ImmediatelyFast | OBF_CROSS / startup | `total=155 resolve=78 sigchg=13 missing=56 ceiling=50.3`，`jvmArgs` 两条，NEEDS_MANUAL | 2 |
+| S2 | 26.1 / JRE25 | ImmediatelyFast | DEOBF_BREAK / offline | `RemapTool` 成功；复测 `resolve=86 sigchg=9 missing=52 ceiling=55.5`，`jvmArgs=[]` | 2 |
+| S3 | 26.1 / JRE25 | ImmediatelyFast + `--strategy startup` | DEOBF_BREAK / startup | **无条件 UNSUPPORTED**，`check=null remap=null jvmArgs=[]` | 1 |
+| S4 | 26.1 / JRE25 | fabric-language-kotlin | NO_GAME_REFS / none | `total=0`，AUTO，脚本 exec | 0 |
+| S5 | 1.21.11 / JDK21 | ImmediatelyFast，无 `--check` | OBF_CROSS / startup | PLAN_ONLY；脚本仅 `REFUSE: plan-only ...`，无 exec | 0 |
+| S6 | 26.1 / JRE25 | ImmediatelyFast，无 `--artifacts` | DEOBF_BREAK / offline | 缺 `bridge-26.1.tsv` → MISSING_ARTIFACT | 1 |
+| S7 | 1.21.1 / JDK21 | c2me + `--check` | SAME_VERSION / none | `total=9 resolve=9 ceiling=100`，AUTO，脚本 exec | 0 |
+
+另有六组纯路由决策 P1–P6（4 个 mod × 5 个真实 jar / JDK17·21·25）：
+P3 往旧 1.20.1 + JDK17 时 c2me / ImmediatelyFast 因声明 `java>=21` 判 `RUNTIME_JAVA_MISMATCH`；
+P4 26.1 + JDK17 时 4 个 mod 全 UNSUPPORTED（class major 69 需 Java 25）；
+P5 26.1 + JRE25 时 3 个 `DEOBF_BREAK`、1 个 `NO_GAME_REFS`，`missing_artifacts=0`；
+P6 不给制品时 3 个 `MISSING_ARTIFACT`，证明 fail-loud 不是空话。
+
+### 14.5 自包含回归：零外部数据、零 Mojang 字节、零网络
+
+`tools/test_loader.py` 用 `tempfile` 合成 obf / deobf / non_jvm 三类 client jar
+（含 `version.json` 与 `ca fe ba be` + major）、八类 mod jar、decl/map/bridge 文本、
+伪 `java`（按 `FAKE_JAVA_MAJOR` 报版本，按 `--json` 写确定性 LinkCheck 工单），
+覆盖 probe / decide / strategy / jvm_args 的 19 个单元断言与 I1–I6 集成断言：
+PLAN_ONLY 不 exec、NEEDS_MANUAL 硬拒绝、26.x startup 有无 `--check` 都 UNSUPPORTED、
+缺制品 fail-loud、NO_GAME_REFS 可执行、native / 异加载器 / 非 JVM / Java 不匹配均 UNSUPPORTED。
+`python3 tools/test_loader.py` 最终 `RESULT ALL_OK 49`；`python3 -m py_compile tools/loader.py tools/test_loader.py` OK。
+
+### 14.6 四个真 bug / 口径坑（写下来防止回归）
+
+1. **26.x bridge 表绝不能当 `LinkCheck --map`**：`LinkCheck.loadMap()`（`java/mcport/LinkCheck.java:297-305`）
+   只认 `M` 行 `owner|desc|oldName → newName`，不处理 bridge 的 `C` 行整类改名与描述符整体换命名空间。
+   修补前 C5 把 `bridge-26.1.tsv` 直接喂 `--map` 得 `resolve=4 missing=141`（虚报）；
+   改成 `RemapTool` 先改字节码、再对真实名 decl 无 `--map` 复测后 S2 得 `resolve=86 missing=52`。
+2. **26.x startup 一律拒绝**：启动期 agent 加载身份桥不仅 check 口径错，装配本身也只跑过离线链路；
+   加固为有无 `--check` 都判 UNSUPPORTED 且清空 `jvmArgs`，不再生成带 `-javaagent` 的假可执行方案。
+3. **plan-only 不启动**：早期 `--emit-script` 会把未跑预言机的 PLAN_ONLY 直接 `exec`；
+   现在未 `--check` 必 `REFUSE ... exit 2`。
+4. **硬错误必须先于 plan-only 提示**：原判定顺序让「unsupported + 未 check」只提示未 check，
+   掩盖了真实原因；最终 `hard → not a.check → exec` 三级顺序由 S3/S5/S6 与 I1–I4 覆盖。
+   另两处测试环境坑：run_code 里 `sys.executable` 为 `''` 需回退 `/usr/bin/python3`；
+   伪 java 固定报 21 会把 26.1/Java25 场景误判成 RUNTIME_JAVA_MISMATCH，必须按场景传 `FAKE_JAVA_MAJOR=25`。
+
+### 14.7 本章收窄了什么、没有收窄什么
+
+收窄：**「给定任意 `(mod, target)` 组合，能不能自动判代、自动选已验证路线、自动给出正确的 JVM 参数或离线重映射产物、
+并把不能自动处理的部分精确列出且拒绝执行」** 从人肉判断变成了 49 断言 + 13 组真实/合成场景可复现的程序。
+仍没有收窄：它不是游戏启动器，不启动 Fabric / Forge / NeoForge / 真实客户端，不覆盖 Bedrock、native 库、
+Mixin refmap / `@Shadow` 声明名、反射字符串、`<init>`、已删除成员、语义漂移（§13 的 85.8%–95.4% 区间），
+也不把 78.7% 静态符号可解析率变成「能跑」。**「全平台全版本任意 mod 都能跑」仍不可达**；
+本章给出的是在这条硬边界内，能自动做对、且做不到的部分一定 fail-loud 的装载编排机。
+
+复现（自备 client jar / 映射制品，仓库不提供）：
+
+```bash
+python3 tools/test_loader.py
+python3 tools/loader.py --repo . --target /path/to/REAL-26.1.jar \
+  --mod /path/to/mod.jar --java /path/to/jre25/bin/java \
+  --source 1.21.1 --artifacts /path/to/artifacts \
+  --check --tickets /tmp/tickets --out plan.json --emit-script launch.sh
+```
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -893,4 +1033,6 @@ JEP 451 / Java SE 17 `java.lang.instrument.Instrumentation` 文档；工单计�
 §12 来自 `/tmp/real26-exp` 与 `demo/real26/run.sh` 的 S0–S11 实跑（2026-11-14，Temurin JRE 25.0.5 + 真实 26.1 client jar 内的单个 major-69 叶类）。
 §13 来自四个真实 client jar（1.21.1 / 1.21.11 / 26.1 / 26.3）的 `java/mcport/BodyHash.java` 全量指纹
 与 `tools/drift_align.py` 官方 ProGuard 真实名身份对齐实跑（2026-11-14，参数化版重跑逐字段一致；
-`data/drift-summary.csv` 为聚合结果，输入字节与映射均不分发）。*
+`data/drift-summary.csv` 为聚合结果，输入字节与映射均不分发）。
+§14 来自 `tools/loader.py` / `tools/test_loader.py` 在 5 个真实 client jar、4 个真实 mod 上的
+P1–P6 / S1–S7 实跑与 49 条自包含断言（2026-11-15；制品目录仅符号链接，输入字节不分发）。*

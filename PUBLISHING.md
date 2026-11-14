@@ -5,7 +5,7 @@
 | 内容 | 位置 |
 | --- | --- |
 | 源码、文档、测量数据 | GitHub: https://github.com/lilyco-42/mcport |
-| 打包分发件 `mcport-0.1.4-dist.tar.gz` | Cloudflare R2 桶 `lain42-dl`，key `downloads/mcport/0.1.4/mcport-0.1.4-dist.tar.gz` |
+| 打包分发件 `mcport-0.1.5-dist.tar.gz` | Cloudflare R2 桶 `lain42-dl`，key `downloads/mcport/0.1.5/mcport-0.1.5-dist.tar.gz` |
 | 下载入口 | https://lain42.top/downloads/ → 条目 `mcport`（经 `dl.lilyco42.top` 的 R2 签名票据通道加速，遵循站点积分规则） |
 | R2 目录 | `catalog/downloads.json`（Worker `lain42-dl-gate` 运行时读取，60s 缓存） |
 
@@ -27,8 +27,10 @@
 * §13 的 `java/mcport/BodyHash.java` + `tools/drift_align.py` 在本机四版真实 client jar
   全量实跑，参数化版重跑与首次 `drift-summary.json` 逐字段一致；`data/drift-summary.csv`
   是可分发的聚合结果，`body-*.tsv` / 映射 / client jar 均不随包提供。
+* §14 的 `tools/test_loader.py` 零外部数据 49 断言全绿；`tools/loader.py` 在 5 个真实
+  client jar + 4 个真实 mod 上跑通 P1–P6 / S1–S7，制品目录仅本机符号链接，不随包提供。
 
-## 边界（务必阅读 REPORT.md §7 / §12 / §13）
+## 边界（务必阅读 REPORT.md §7 / §12 / §13 / §14）
 
 静态符号可解析率 **不等于** 能在真实客户端运行。同名同签名语义漂移无法被
 静态工具**彻底**判定（demo E2 用 42→6 实测展示；§13 给出 4.6%–14.2% 的可检测下界，
@@ -39,7 +41,9 @@ HostBridge 只解决「旧签名能链接上」这一机械层，`<init>`、已�
 且未在真实客户端端到端验证。§12 只把「26.x 需要 JDK 25」这一环境门槛判干净，
 不等于客户端/Fabric/LWJGL/真实 mod 已跑通。§13 只给语义漂移一个可检测下界，
 85.8%–95.4% 的指纹全同区间静态工具仍判不干净，不证明任何 mod 能跑。
-本工具不做「任意版本都有效」的承诺。
+§14 的装载编排机只保证「能自动做对的部分自动做、做不到的部分 fail-loud」，
+不是游戏启动器，不覆盖 Bedrock / native / Mixin refmap / 语义漂移 / 真实客户端端到端。
+本工具不做「任意版本都有效」或「全平台全版本任意 mod 都能跑」的承诺。
 
 ## 回滚
 
