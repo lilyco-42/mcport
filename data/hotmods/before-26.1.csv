@@ -1,0 +1,5 @@
+mod,total,resolve,rename,sigchg,missing,external,judged,auto_fix_pct,as_is_pct
+ImmediatelyFast-Fabric-1.6.15%2B1.21.1.jar,155,4,0,3,141,7,148,2.7,2.7
+fabric-language-kotlin-1.14.2%2Bkotlin.2.4.21.jar,0,0,0,0,0,0,0,0.0,0.0
+xaerominimap-fabric-1.21.1-26.6.0.jar,768,1,0,1,765,1,767,0.1,0.1
+yet_another_config_lib_v3-3.8.2%2B1.21.1-fabric.jar,267,1,0,0,250,16,251,0.4,0.4

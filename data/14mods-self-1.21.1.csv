@@ -1,0 +1,15 @@
+mod,total,resolve,rename,sigchg,missing,external,judged,auto_fix_pct,as_is_pct
+c2me-fabric-0.4.0-alpha.0.30+1.21.1.jar,9,9,0,0,0,0,9,100.0,100.0
+cloth-config-15.0.140+fabric.jar,288,285,0,0,0,3,285,100.0,100.0
+entityculling-1.12.1.jar,128,127,0,0,0,1,127,100.0,100.0
+fabric-api-0.116.18+1.21.1.jar,0,0,0,0,0,0,0,0.0,0.0
+ferrite-core-7.0.3-fabric.jar,28,26,0,0,0,2,26,100.0,100.0
+indium-1.0.35+mc1.21.jar,109,103,0,0,3,3,106,97.2,97.2
+iris-1.8.14-beta.1+1.21.1-fabric.jar,827,821,0,0,0,6,821,100.0,100.0
+jei-19.70.0.469.jar,1050,962,0,0,6,82,968,99.4,99.4
+krypton-0.2.8.jar,4,4,0,0,0,0,4,100.0,100.0
+lithium-mc1.21.1-0.15.4-fabric.jar,576,570,0,1,1,4,572,99.7,99.7
+modmenu-11.0.5.jar,190,187,0,0,0,3,187,100.0,100.0
+noisium-2.3.0+mc1.21-1.21.1.jar,26,26,0,0,0,0,26,100.0,100.0
+reeses-sodium-options-mc1.21.1-2.2.4+fabric.jar,137,136,0,0,0,1,136,100.0,100.0
+sodium-mc1.21.1-0.8.13-fabric.jar,696,683,0,0,1,12,684,99.9,99.9

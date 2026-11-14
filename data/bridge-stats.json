@@ -1,0 +1,209 @@
+{
+  "date": "2026-11-14",
+  "note": "全部为本机实测计数；2026-11-14 二次修正（com/mojang 独立库豁免，REPORT §5 第 15 条）后四条流水线实跑重生成。本目录不分发任何官方 ProGuard 映射或完整 bridge TSV。",
+  "scope": {
+    "mods": 14,
+    "total_refs": 4068,
+    "judged_formula": "total - external",
+    "external_rule": "91 com/mojang 独立库(serialization 64 / datafixers 16 / brigadier 9 / logging 2) + JDK 继承；游戏包由目标 decl 自证",
+    "game_mojang_pkgs_26_1": [
+      "com/mojang/blaze3d",
+      "com/mojang/math",
+      "com/mojang/realmsclient"
+    ],
+    "fixed_false_missing_per_version": 91
+  },
+  "decl_26_1": {
+    "classes": 10682,
+    "supers": 10682,
+    "methods": 92527,
+    "fields": 47418,
+    "com_mojang_classes": 474
+  },
+  "bridge_1_21_1": {
+    "proguard_classes": 8269,
+    "tiny_classes": 8254,
+    "proguard_members": 111338,
+    "tiny_members": 78922,
+    "aligned_members": 78401,
+    "align_pct": 99.34,
+    "i2r_classes": 8220,
+    "i2r_members": 78401
+  },
+  "bridge_1_21_11": {
+    "proguard_classes": 10291,
+    "tiny_classes": 10229,
+    "proguard_members": 135236,
+    "tiny_members": 94916,
+    "aligned_members": 93951,
+    "align_pct": 98.98,
+    "i2r_classes": 10201,
+    "i2r_members": 93951
+  },
+  "bridge26": {
+    "total_lines": 125913,
+    "data_lines": 125912,
+    "C": 10737,
+    "M": 57248,
+    "F": 49681,
+    "S": 8246,
+    "S_pipeline26": 8269,
+    "exact": 9903,
+    "fallback": 727,
+    "relocated": 107,
+    "supers": 8246,
+    "target_classes": 10682
+  },
+  "mixin_annotations": {
+    "26x_pipeline": {
+      "before": {
+        "mixinClasses": 572,
+        "annotationStrings": 2386,
+        "interStrings": 983,
+        "interTokens": 1987
+      },
+      "after": {
+        "mixinClasses": 572,
+        "annotationStrings": 2386,
+        "interStrings": 25,
+        "interTokens": 25
+      },
+      "changed": 960,
+      "unresolved": 24,
+      "reduction_pct": 98.7
+    },
+    "normal_pipeline": {
+      "before_interTokens": 1987,
+      "after_interTokens": 1987,
+      "note": "intermediary→intermediary 无 C 行命名空间切换，token 数保持是预期的；看 RENAME 26→0 / RESOLVE 3119→3145"
+    }
+  },
+  "linkcheck": {
+    "total": 4068,
+    "baseline": {
+      "resolve": 4,
+      "rename": 0,
+      "sigchg": 2,
+      "missing": 3971,
+      "external": 91,
+      "judged": 3977,
+      "static_pct": 0.1
+    },
+    "bridge_1_21_11": {
+      "resolve": 2522,
+      "sigchg": 126,
+      "missing": 1306,
+      "external": 114,
+      "judged": 3954,
+      "static_pct": 63.8
+    },
+    "bridge_1_21_1": {
+      "resolve": 2597,
+      "sigchg": 38,
+      "missing": 1317,
+      "external": 116,
+      "judged": 3952,
+      "static_pct": 65.7
+    },
+    "bridge_merged": {
+      "resolve": 2691,
+      "sigchg": 107,
+      "missing": 1154,
+      "external": 116,
+      "judged": 3952,
+      "static_pct": 68.1
+    },
+    "final": {
+      "resolve": 3109,
+      "rename": 0,
+      "sigchg": 156,
+      "missing": 687,
+      "external": 116,
+      "judged": 3952,
+      "static_pct": 78.7,
+      "needs_manual": 843
+    },
+    "final_missing_attribution": {
+      "owner_class_gone": 290,
+      "member_gone": 397
+    }
+  },
+  "four_pipelines_2026_11_14": {
+    "self_1_21_1": {
+      "resolve": 3939,
+      "rename": 0,
+      "sigchg": 1,
+      "missing": 11,
+      "external": 117,
+      "judged": 3951,
+      "auto_pct": 99.7
+    },
+    "to_1_21_11_before": {
+      "resolve": 3119,
+      "rename": 26,
+      "sigchg": 240,
+      "missing": 566,
+      "external": 117,
+      "judged": 3951,
+      "auto_pct": 79.6,
+      "as_is_pct": 78.9
+    },
+    "to_1_21_11_after": {
+      "resolve": 3145,
+      "rename": 0,
+      "sigchg": 240,
+      "missing": 566,
+      "external": 117,
+      "judged": 3951,
+      "as_is_pct": 79.6
+    },
+    "to_1_20_1_before": {
+      "resolve": 3577,
+      "rename": 3,
+      "sigchg": 80,
+      "missing": 291,
+      "external": 117,
+      "judged": 3951,
+      "auto_pct": 90.6,
+      "as_is_pct": 90.5
+    },
+    "to_1_20_1_after": {
+      "resolve": 3580,
+      "rename": 0,
+      "sigchg": 80,
+      "missing": 291,
+      "external": 117,
+      "judged": 3951,
+      "as_is_pct": 90.6
+    },
+    "to_26_1_baseline": {
+      "resolve": 4,
+      "sigchg": 2,
+      "missing": 3971,
+      "external": 91,
+      "judged": 3977,
+      "static_pct": 0.1
+    },
+    "to_26_1_after": {
+      "resolve": 3109,
+      "sigchg": 156,
+      "missing": 687,
+      "external": 116,
+      "judged": 3952,
+      "static_pct": 78.7
+    },
+    "all_exits": 2,
+    "verifier_bad_jei_class": "baseline-existing, not introduced by remap",
+    "demo_exit": 0
+  },
+  "determinism": {
+    "seeds": [
+      1,
+      2,
+      777
+    ],
+    "bridge_py_sha256": "925cecb50b6dbf9928dc31b951c38342c4a7abb42296aa1dfcd6d7a28f6ad79d",
+    "bridge26_py_sha256": "73a676fb688a61b1082c056d07b0e336765fccf6c8a90e2482cfb249369d9fa9",
+    "note": "三 seed 字节一致；与研究产物数据行语义相同(86621 / 125912 行)；四流水线 + demo 二次修正后全绿"
+  }
+}
