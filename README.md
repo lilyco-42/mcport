@@ -238,6 +238,7 @@ python3 tools/stringsurface.py --spec /work/spec.json --out-dir /work/rw --rewri
 
 ```bash
 python3 tools/test_capability.py                                  # 156 断言，零外部数据
+python3 tools/test_linkgate_contract.py                           # 27 断言，零外部数据
 python3 tools/capability.py --spec /work/spec.json --out-dir /work/gate
 ```
 
@@ -245,12 +246,12 @@ python3 tools/capability.py --spec /work/spec.json --out-dir /work/gate
 `data/capability-README.md`，路径模板见 `data/capability-spec.example.json`。
 详见 REPORT §18.6 / §18.9。
 
-## 启动期能力闸门（REPORT §19）
+## 启动期能力闸门（REPORT §19 / §20）
 
-`LinkGate` 是不改 mod 字节的 `-javaagent`：在 `premain` 用纯 JDK 两遍解析 class 常量池，对照由 `tools/linkgate_contract.py` 从真实 LinkCheck 工单生成的契约，把 `MISSING` / `SIGCHG` 引用在启动前干净拒绝（rc=2、无 native abort）；`RENAME` 只计数，未知引用默认 `RESOLVE`，`warn` 只豁免已知 blocker 不豁免读表失败。两版真实工单各 4 份 / 1190 原始引用 / 1019 唯一引用；26.1 有 68 SIGCHG + 223 MISSING 会阻断。
+`LinkGate` 是不改 mod 字节的 `-javaagent`：在 `premain` 用纯 JDK 两遍解析 class 常量池，对照由 `tools/linkgate_contract.py` 从真实 LinkCheck 工单生成的契约，把 `MISSING` / `SIGCHG` 引用在启动前干净拒绝（rc=2、无 native abort）；`RENAME` 只计数，未知引用默认 `RESOLVE`，`warn` 只豁免已知 blocker 不豁免读表失败。§20 把契约 `version` 头绑定到 `-Dmcport.gate.version`，并把空 jar / 冲突状态 / 非法头 / 状态拼写错误全部改为 `FAIL`。两版真实工单各 4 份 / 1190 原始引用 / 1019 唯一引用；26.1 有 68 SIGCHG + 223 MISSING 会阻断。
 
 ```bash
-bash demo/gate/run.sh                          # 18 场景 81 断言，含真实契约 JVM 阻断与 42→6 语义漂移铁证
+bash demo/gate/run.sh                          # 24 场景 122 断言，含真实契约 JVM 阻断与 42→6 语义漂移铁证
 python3 tools/test_linkgate_contract.py        # 27 断言 + 可选真实工单聚合回归
 ```
 
@@ -268,7 +269,7 @@ python3 tools/test_relocate.py                          # §15 严格迁移 27 �
 python3 tools/test_bridgegen.py                         # §16 人工桥工作台 61 断言回归
 python3 tools/test_stringsurface.py                     # §17 字符串表面 78 断言回归
 python3 tools/test_capability.py                        # §18 出货闸门 156 断言回归
-python3 tools/test_linkgate_contract.py                 # §19 启动期契约 27 断言回归
+python3 tools/test_linkgate_contract.py                 # §19/§20 启动期契约 27 断言回归
 ```
 
 > **CI 注意**：若 `LANG`/`LC_ALL` 为空，JDK 用 `ANSI_X3.4-1968` 解码路径，中文目录会让 `javac`
@@ -281,6 +282,6 @@ python3 tools/test_linkgate_contract.py                 # §19 启动期契约 2
 ## 下载与发布
 
 * 源码仓库：https://github.com/lilyco-42/mcport （MIT）
-* 打包分发件：https://lain42.top/downloads/ 内条目 `mcport`，经 Cloudflare R2 签名票据通道加速下载。
+* 打包分发件：https://lain42.top/downloads/ 内条目 `mcport`，当前版本走 GitHub Release 直链（非 R2 加速），详见 PUBLISHING.md。
 * 发布通道说明见 [PUBLISHING.md](PUBLISHING.md)，第三方组件声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 * 热门 mod 转移测量与逐条兼容工单见 [data/hotmods/README.md](data/hotmods/README.md)。

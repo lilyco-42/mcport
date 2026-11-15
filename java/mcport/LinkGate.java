@@ -31,15 +31,22 @@ import java.util.zip.*;
  *   - status == RENAME → McPortRuntime 可机械重命名修复，仅计数提示；
  *   - status == RESOLVE 或不在 contract → 通过（未知不赌，闸门只拦显式已知坏）。
  *
- * 参数：
+ * 参数（§20 加固）：
  *   -Dmcport.gate=<contract.tsv>      必填（也可用 -javaagent:agent.jar=<path>）
  *   -Dmcport.gate.modjar=<mod.jar>    必填（要扫描的 mod；缺省 = 拒绝）
  *   -Dmcport.gate.policy=reject|warn  默认 reject（未知值一律 fail-closed 按 reject）
+ *   -Dmcport.gate.version=<expected>  可选；给定时契约头 version 必须逐字相等，否则拒绝
  *   参数缺失 / 读表 / 读 jar 失败一律 System.exit(2)，policy=warn 也不豁免；
  *   warn 只豁免「已成功扫描后发现的已知 blocker」。
+ *
+ * §20：空 jar / 无 class 的 mod 一律 FAIL（禁止 scans=0 假放行）；契约同一 (owner,name,desc)
+ * 出现不同 status 一律 FAIL；契约头 source_sha256 若存在必须是 64 位小写十六进制。契约头
+ * version 由 -Dmcport.gate.version 绑定，防止拿 1.21.11 契约去判 26.1 的 mod。
+ * 契约头重复且不一致、状态拼写错误（如 MISSNG）也一律 FAIL，防止拼写错误静默放行。
  */
 public final class LinkGate {
     private static final Set<String> BLOCK = Set.of("MISSING", "SIGCHG");
+    private static final Set<String> ALLOWED = Set.of("RESOLVE", "RENAME", "SIGCHG", "MISSING");
     private enum Policy { REJECT, WARN }
 
     public static void premain(String agentArgs, java.lang.instrument.Instrumentation inst) {
@@ -57,7 +64,17 @@ public final class LinkGate {
         }
         try {
             Map<String, String> contract = loadContract(contractPath);
+            String expectedVersion = System.getProperty("mcport.gate.version", "");
+            if (!expectedVersion.isEmpty()) {
+                String contractVersion = contract.getOrDefault("@version", "");
+                if (contractVersion.isEmpty()) throw new IOException(
+                        "contract has no version header; cannot bind to expected version " + expectedVersion);
+                if (!expectedVersion.equals(contractVersion)) throw new IOException(
+                        "contract version mismatch: expected=" + expectedVersion + " contract=" + contractVersion);
+                System.err.println("[linkgate] version=" + contractVersion + " OK");
+            }
             RefSet refs = scan(modJar);
+            if (refs.classCount == 0) throw new IOException("mod jar contains no class entries; refusing to pass");
             int blockers = 0, renames = 0, resolve = 0;
             List<String> bad = new ArrayList<>();
             for (String key : refs.memberRefs) {
@@ -90,13 +107,34 @@ public final class LinkGate {
             String line;
             while ((line = r.readLine()) != null) {
                 line = line.trim();
-                if (line.isEmpty() || line.startsWith("#")) continue;
+                if (line.isEmpty()) continue;
+                if (line.startsWith("#")) {
+                    String h = line.substring(1).trim();
+                    for (String kv : h.split("\\s+")) {
+                        if (kv.startsWith("version=")) header(m, "@version", kv.substring(8));
+                        else if (kv.startsWith("source_sha256=")) {
+                            String digest = kv.substring(14);
+                            if (!digest.matches("[0-9a-f]{64}")) throw new IOException("bad source_sha256 header");
+                            header(m, "@source_sha256", digest);
+                        }
+                    }
+                    continue;
+                }
                 String[] p = line.split("\\s+");
                 if (p.length < 4) continue;
-                m.put(p[0] + "|" + p[1] + "|" + p[2], p[3].toUpperCase(Locale.ROOT));
+                String key = p[0] + "|" + p[1] + "|" + p[2];
+                String status = p[3].toUpperCase(Locale.ROOT);
+                if (!ALLOWED.contains(status)) throw new IOException("unknown status " + p[3] + " for " + key);
+                String old = m.putIfAbsent(key, status);
+                if (old != null && !old.equals(status)) throw new IOException("conflicting status for " + key);
             }
         }
         return m;
+    }
+
+    private static void header(Map<String, String> m, String key, String value) throws IOException {
+        String old = m.putIfAbsent(key, value);
+        if (old != null && !old.equals(value)) throw new IOException("conflicting " + key + " header");
     }
 
     private static final class RefSet {

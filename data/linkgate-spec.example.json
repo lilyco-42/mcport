@@ -9,7 +9,8 @@
   "runtime": {
     "agent": "/work/linkgate.jar",
     "modjar": "/work/mod.jar",
-    "policy": "reject"
+    "policy": "reject",
+    "version": "26.1"
   },
   "note": "paths are placeholders; tool never downloads or embeds Mojang bytes or mod binaries"
 }

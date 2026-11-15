@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LinkGate 启动期能力闸门端到端实验 (REPORT §19).
+# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20).
 # 所有产物在 demo/gate/build/（gitignore），不触碰 demo/*.jar tracked 二进制。
 # 固定 jar --date，保证两次运行产物字节一致；mod jar 在所有场景前后 sha1 不变。
 set -e
@@ -245,6 +245,80 @@ run G18 "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-absent.tsv -Dmcport.gate
 ck_rc G18_rc_2 G18 2
 ck_has G18_fail G18 err "[linkgate] FAIL"
 ck G18_stdout_empty eq "$(cat build/G18.out)" ""
+
+echo
+echo "== G19. 契约版本绑定：匹配放行、错版/无头拒绝 =="
+run G19_ok "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-26.1-head.tsv -Dmcport.gate.version=26.1 -Dmcport.gate.modjar="$MOD" -cp "$CP" demo.GateMod
+ck_rc G19_ok_rc_0 G19_ok 0
+ck_has G19_ok_version G19_ok err "[linkgate] version=26.1 OK"
+ck_has G19_ok_pass G19_ok err "[linkgate] PASS"
+ck_has G19_ok_stdout_42 G19_ok out "gatemod block=42"
+run G19_wrong "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-26.1-head.tsv -Dmcport.gate.version=1.21.11 -Dmcport.gate.modjar="$MOD" -cp "$CP" demo.GateMod
+ck_rc G19_wrong_rc_2 G19_wrong 2
+ck_has G19_wrong_fail G19_wrong err "contract version mismatch: expected=1.21.11 contract=26.1"
+ck_nhas G19_wrong_no_pass G19_wrong err "[linkgate] PASS"
+ck G19_wrong_stdout_empty eq "$(cat build/G19_wrong.out)" ""
+ck G19_wrong_no_abort nhas build/G19_wrong.err "FATAL ERROR in native method"
+run G19_nohead "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-versionless.tsv -Dmcport.gate.version=26.1 -Dmcport.gate.modjar="$MOD" -cp "$CP" demo.GateMod
+ck_rc G19_nohead_rc_2 G19_nohead 2
+ck_has G19_nohead_fail G19_nohead err "contract has no version header"
+ck G19_nohead_stdout_empty eq "$(cat build/G19_nohead.out)" ""
+
+echo "== G20. 空 jar / 无 class 一律拒绝（消除 scans=0 假放行）=="
+mkdir -p build/emptydir
+printf 'no class entries\n' > build/emptydir/readme.txt
+(cd build && jar --create --file=gate-empty.jar $JAR_DATE -C emptydir readme.txt)
+printf 'not a zip\n' > build/gate-nonjar.bin
+run G20 "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-resolve.tsv -Dmcport.gate.modjar=build/gate-empty.jar -cp "$CP" demo.GateMod
+ck_rc G20_rc_2 G20 2
+ck_has G20_fail G20 err "mod jar contains no class entries"
+ck G20_stdout_empty eq "$(cat build/G20.out)" ""
+run G20_warn "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-resolve.tsv -Dmcport.gate.modjar=build/gate-empty.jar -Dmcport.gate.policy=warn -cp "$CP" demo.GateMod
+ck_rc G20_warn_rc_2 G20_warn 2
+ck_has G20_warn_fail G20_warn err "mod jar contains no class entries"
+ck G20_warn_stdout_empty eq "$(cat build/G20_warn.out)" ""
+run G20_nonjar "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-resolve.tsv -Dmcport.gate.modjar=build/gate-nonjar.bin -cp "$CP" demo.GateMod
+ck_rc G20_nonjar_rc_2 G20_nonjar 2
+ck_has G20_nonjar_fail G20_nonjar err "mod jar contains no class entries"
+ck G20_nonjar_stdout_empty eq "$(cat build/G20_nonjar.out)" ""
+
+echo "== G21. 契约行冲突 / 坏 digest 头：读表失败即拒绝 =="
+run G21_conflict "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-conflict.tsv -Dmcport.gate.modjar="$MOD" -cp "$CP" demo.GateMod
+ck_rc G21_conflict_rc_2 G21_conflict 2
+ck_has G21_conflict_fail G21_conflict err "conflicting status for net/mc/World|getBlock|(III)I"
+ck G21_conflict_stdout_empty eq "$(cat build/G21_conflict.out)" ""
+run G21_digest "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-bad-digest.tsv -Dmcport.gate.modjar="$MOD" -cp "$CP" demo.GateMod
+ck_rc G21_digest_rc_2 G21_digest 2
+ck_has G21_digest_fail G21_digest err "bad source_sha256 header"
+ck G21_digest_stdout_empty eq "$(cat build/G21_digest.out)" ""
+
+echo "== G22. warn 不豁免版本绑定错误；真实 26.1 契约 + 正确版本放行 =="
+run G22_warn "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-26.1-head.tsv -Dmcport.gate.version=1.21.11 -Dmcport.gate.modjar="$MOD" -Dmcport.gate.policy=warn -cp "$CP" demo.GateMod
+ck_rc G22_warn_rc_2 G22_warn 2
+ck_has G22_warn_fail G22_warn err "contract version mismatch"
+ck G22_warn_stdout_empty eq "$(cat build/G22_warn.out)" ""
+run G22_real "$JAVA" -javaagent:"$AG" -Dmcport.gate=build/contract-26.1.tsv -Dmcport.gate.version=26.1 -Dmcport.gate.modjar="$MOD" -cp "$CP" demo.GateMod
+ck_rc G22_real_rc_0 G22_real 0
+ck_has G22_real_version G22_real err "[linkgate] version=26.1 OK"
+ck_has G22_real_pass G22_real err "[linkgate] PASS"
+ck_has G22_real_stdout_42 G22_real out "gatemod block=42"
+
+S1=$(sha256sum "$MOD" | cut -d' ' -f1)
+ck G22_mod_zero_change eq "$S0" "$S1"
+fact "mod.sha256.final=$S1"
+
+echo
+echo "== G23. 状态拼写错误静默放行被封死：unknown status 必须 FAIL =="
+run G23 "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-bad-status.tsv -Dmcport.gate.modjar="$MOD" -cp "$CP" demo.GateMod
+ck_rc G23_rc_2 G23 2
+ck_has G23_fail G23 err "unknown status MISSNG"
+ck G23_stdout_empty eq "$(cat build/G23.out)" ""
+
+echo "== G24. 重复 version 头不一致：conflicting header 必须 FAIL =="
+run G24 "$JAVA" -javaagent:"$AG" -Dmcport.gate=contract-head-conflict.tsv -Dmcport.gate.modjar="$MOD" -cp "$CP" demo.GateMod
+ck_rc G24_rc_2 G24 2
+ck_has G24_fail G24 err "conflicting @version header"
+ck G24_stdout_empty eq "$(cat build/G24.out)" ""
 
 echo "GATE_RESULT assertions=$CHECKS OK"
 echo OK

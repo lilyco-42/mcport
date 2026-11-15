@@ -1,0 +1,3 @@
+# owner  name  desc  status
+net/mc/World  getBlock  (III)I  RESOLVE
+java/lang/String  length  ()I  RESOLVE

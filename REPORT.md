@@ -1554,6 +1554,50 @@ java -javaagent:linkgate.jar \
 
 LinkGate 把「静态预言」推进到「启动期零修改拒绝」，但不扩大「能跑」集合：① 它只扫描 **class 常量池里的成员引用**，看不到反射 / 配置 / 资源字符串（§17 有独立审计）；② `RESOLVE` 不证明语义等价，G15 实测同名同签名 42→6 仍 PASS；③ 契约质量完全依赖上游工单，工单错则闸门错（fail-loud 只保证不被静默洗白）；④ 未覆盖真实客户端 / Fabric / LWJGL / Mixin 端到端；⑤ 它不修任何东西，只是干净拒绝或放行。因此「全平台全版本任意 mod 都能跑」仍不可达；§19 的等效交付是**把已知的坏挡在启动前**，把无法证明的好标成未知并继续 fail-loud。
 
+## 20. 启动期闸门身份绑定与 fail-loud 加固（McPort 0.2.1）
+
+### 20.1 §19 留下的四类「静默放行」缺口
+
+逐行复盘 0.2.0 的 `java/mcport/LinkGate.java` 可见四个不扩大「能跑」集合、却可能把**错误判定**洗白成 `PASS` 的缺口：
+
+1. **契约无身份**：生成器写入的 `# mcport-linkgate-contract schema=1 version=<target>` 头在运行期被 `loadContract` 与所有 `#` 行一起跳过。拿 1.21.11 的契约去判 26.1 的 mod，闸门毫无察觉。
+2. **空扫描假放行**：`scan()` 在 `classCount==0` 时仍是 `blockers=0`，损坏的 / 非 ZIP 的 / 只有资源的 jar 会直接 `PASS`。
+3. **契约行冲突静默**：`m.put(...)` 同 key 后写覆盖前写，`RESOLVE` 与 `MISSING` 并存时结论取决于行序。
+4. **非法状态与非法头**：拼错的 `MISSNG` 既不在 `BLOCK` 也不在白名单，等同 `RESOLVE`；`source_sha256` 头格式无人校验。
+
+这些都不是「能不能跑」的问题，而是「闸门有没有资格说 `PASS`」的问题；修掉它们不增加任何运行期兼容能力。
+
+### 20.2 四项加固（全部 backward-compatible）
+
+| 编号 | 加固 | 失败语义 |
+| --- | --- | --- |
+| H1 | `-Dmcport.gate.version=<expected>` 与契约头 `version=` 逐字绑定 | 缺头 → `contract has no version header; cannot bind to expected version <v>`；错版 → `contract version mismatch: expected=... contract=...`；均 `FAIL` + rc=2 |
+| H2 | `classCount==0` 直接拒绝 | `mod jar contains no class entries; refusing to pass` → `FAIL` + rc=2 |
+| H3 | 同 key 不同 status、两个不同 `version=` / `source_sha256` 头 → `conflicting status for ...` / `conflicting @version header` | `FAIL` + rc=2 |
+| H4 | 状态必须落在 `RESOLVE/RENAME/SIGCHG/MISSING` 白名单；`source_sha256` 头若存在须为 64 位小写 hex | `unknown status MISSNG for ...` / `bad source_sha256 header` → `FAIL` + rc=2 |
+
+实现仍是单文件 `java/mcport/LinkGate.java`（纯 JDK、零 ASM、零新增命名内部类，`javac` 产物仍 32 个 class）：`loadContract` 把头字段存进特殊键 `@version` / `@source_sha256`，`header()` 用 `putIfAbsent` 检冲突；`ALLOWED` 常量集取代「只认 `BLOCK`、其余一律放行」；`premain` 在 `scan()` 之后、统计之前插入版本绑定与空扫描检查。成功绑定打印 `[linkgate] version=<v> OK`。**不传 `-Dmcport.gate.version` 时行为与 0.2.0 完全一致**，旧的无头手写最小契约继续可用；`policy=warn` 只豁免「扫描成功后的已知 blocker」，H1–H4 任何一条失败在 warn 下仍 `FAIL` + rc=2。
+
+### 20.3 24 场景 122 断言
+
+`demo/gate/run.sh` 保留 G1–G18 原 81 断言，新增 6 个纯合成契约（`contract-26.1-head.tsv` / `contract-versionless.tsv` / `contract-conflict.tsv` / `contract-bad-digest.tsv` / `contract-bad-status.tsv` / `contract-head-conflict.tsv`，不含任何真实符号、官方映射或 Mojang 字节）与 G19–G24 共 41 断言：
+
+| 场景 | 铁证 |
+| --- | --- |
+| G19 | 版本匹配 `version=26.1 OK` + `PASS`；错版、缺头均 rc=2 |
+| G20 | 空 jar（含 `readme.txt` 无 `.class`）与 `not a zip` 均 rc=2；warn 不豁免 |
+| G21 | 同 key `RESOLVE` + `MISSING` → `conflicting status`；`DEADBEEF` → `bad source_sha256 header` |
+| G22 | warn 不豁免错版；真实 26.1 契约 + `-Dmcport.gate.version=26.1` 扫 demo mod → `PASS` 且 `gatemod block=42` |
+| G23 | `MISSNG` → `unknown status` |
+| G24 | 双 `version=` 头 → `conflicting @version header` |
+
+`bash -n demo/gate/run.sh && bash demo/gate/run.sh` → `GATE_RESULT assertions=122 OK`；mod jar 前后 sha256 恒为 `40dbf5b103e072af254b41fcded76c27086c41c5c5e8b5bc8730022b64d2ebc3`，G16 真实工单契约两次生成 `cmp` 一致（summary `26.1,4,1190,28,1019,143,728,0,68,223`），G15 的 42→6 语义漂移仍 `PASS`。
+
+### 20.4 结论与残余
+
+0.2.1 **没有新增 JVM 层加载器，也没有扩大「能跑」集合**：它只把「闸门说 `PASS`」的前提收紧为「契约身份对得上、jar 真的被扫过、契约自身无冲突且合法」。G15 的同名同签名 42→6 依旧 `PASS`，正是 JVMS §5.4.3 精确链接 + 语义漂移静态不可判的持续反证；反射 / 配置 / 资源字符串（§17）、真实客户端 / Fabric / LWJGL / Mixin 端到端、179 SIGCHG + 423 MISSING 人工缺口全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
+
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -1577,6 +1621,7 @@ LinkCheck 工单、两张真实目标声明表上的生成 + RemapTool + 无 `--
 8 份真实工单、2 份目标声明表、8 个已重映射 mod jar 上的实跑与 61 条自包含断言（2026-11-15；602 条引用、
 4 条唯一人工候选、`auto_fixed=0`；输入字节、callkind/triage/骨架均不分发，聚合数字见 `data/bridgegen-summary.csv`）。
 §19 来自 `tools/linkgate_contract.py` / `java/mcport/LinkGate.java` / `demo/gate/run.sh` 在 8 份真实 LinkCheck 工单、两版 target、一个合成 stub jar 上的契约生成 + JVM premain 实跑与 81 条端到端断言（2026-11-15；两版各 4 工单 / 1190 原始引用 / 1019 唯一引用；26.1 合成 stub 精确命中 `GlStateManager._activeTexture(I)V -> MISSING` 并干净拒绝 rc=2；完整契约与 stub 字节均不分发，聚合数字见 `data/linkgate-summary.csv`）。
+§20 来自 `java/mcport/LinkGate.java` 的 H1–H4 加固与 `demo/gate/run.sh` G19–G24 六个合成契约的 JVM premain 实跑（2026-11-15；保留原 81 断言并新增 41 条，共 24 场景 122 断言；空 jar / 错版 / 冲突头 / 非法状态一律 rc=2；合成契约不含真实符号，无新增分发字节）。
 §17 来自 `tools/stringsurface.py` / `tools/test_stringsurface.py` 在 §15 复测后的 8 个真实
 mod jar、2 张目标声明表、2 张映射表上的 audit / rewrite 实跑、4 个改写 `.class` 的 `javap` 结构校验与
 78 条自包含断言（2026-11-15；7288 次字符串出现、70 条精确可改、150 条 fail-loud、6 个真实条目改写；

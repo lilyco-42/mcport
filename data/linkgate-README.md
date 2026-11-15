@@ -1,8 +1,8 @@
-# LinkGate 启动期能力闸门 / 契约数据说明（REPORT §19）
+# LinkGate 启动期能力闸门 / 契约数据说明（REPORT §19 / §20）
 
 本节只描述数据格式与可分发聚合，**不携带任何 Mojang client jar、官方 ProGuard 映射、
 第三方 mod 二进制或完整契约**。真实契约 `capability-<version>.tsv` 由 `tools/linkgate_contract.py`
-在调用方本机从自备 LinkCheck 工单生成，输出到 `--out-dir`，不进仓库与发布包。
+在调用方本机从自备 LinkCheck 工单生成，输出到 `--out`，不进仓库与发布包。
 
 ## 契约格式
 
@@ -28,14 +28,17 @@ java -javaagent:linkgate.jar \
   -Dmcport.gate=/work/capability-26.1.tsv \
   -Dmcport.gate.modjar=/work/mod.jar \
   -Dmcport.gate.policy=reject|warn \
+  -Dmcport.gate.version=26.1 \
   -cp /work/mod.jar:/work/api.jar demo.GateMod
 ```
 
 * `policy=reject`（默认，未知值 fail-closed 同 reject）：任何 blocker → `System.exit(2)`；
   业务 stdout 为空，stderr 打印逐条 `BLOCKER` 与 `REJECT`。
 * `policy=warn`：打印 `WARN: <n>` 与 `PASS` 后照常启动；不是放行证明。
-* 参数缺失、契约文件/ mod jar 不存在、class 文件无法解析 → `FAIL` 且 reject 模式 exit 2；
-  绝不把 premain 异常抛给 HotSpot（实测会 native abort rc=134）。
+* 参数缺失、契约文件/ mod jar 不存在、class 文件无法解析 → `FAIL` 且 rc=2；
+  `policy=warn` 也不豁免；绝不把 premain 异常抛给 HotSpot（实测会 native abort rc=134）。
+* §20 加固：给 `-Dmcport.gate.version` 时契约头 `version=` 必须逐字匹配，缺头/错版即 `FAIL`；
+  空 jar / 无 `.class` / 非 ZIP 输入、冲突契约状态、冲突/非法头、未知 status 拼写一律 `FAIL`。
 * `SIGCHG` 默认硬阻断，即使 `RENAME` 机械可修也不降级；需要人工桥显式 opt-in。
 
 ## 分发边界

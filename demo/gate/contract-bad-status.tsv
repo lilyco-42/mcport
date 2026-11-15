@@ -1,0 +1,2 @@
+# bad status must fail-loud
+net/mc/World  getBlock  (III)I  MISSNG
