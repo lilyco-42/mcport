@@ -31,5 +31,13 @@
     ],
     "summary": "/work/parse-unified-summary.csv",
     "note": "section 22 strict parser convergence; paths are placeholders"
+  },
+  "refcheck": {
+    "refs_json": "/work/refs.json",
+    "ticket": "/work/legacy.json",
+    "golden": "data/refcheck-legacy-golden.json",
+    "out": "/work/refcheck.json",
+    "regression": "tools/test_refcheck.py",
+    "note": "section 23 structured refs reconciliation; paths are placeholders"
   }
 }

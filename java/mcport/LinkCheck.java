@@ -23,7 +23,10 @@ import java.util.zip.*;
  *
  * 用法:
  *   java -cp mcport.jar:asm.jar mcport.LinkCheck \
- *        --decl decl-<target>.tsv --mod mod.jar [--map map.tsv] [--json report.json]
+ *        --decl decl-<target>.tsv --mod mod.jar [--map map.tsv] [--json report.json] [--refs-json refs.json]
+ *
+ *   --refs-json (§23) writes exact (kind,owner,name,desc,status) refs; ordinary --json
+ *   details remain byte-identical, while quote/control chars are now valid JSON.
  *
  * 退出码: 0 = 全部 RESOLVE/RENAME 可自动处理; 2 = 存在 SIGCHG/MISSING 需人工介入。
  */
@@ -41,15 +44,19 @@ public class LinkCheck {
     static final Map<String, String> CLS_RENAME = new HashMap<>();
     static final Map<String, String> M_RENAME = new HashMap<>();  // owner|desc|old -> new
     static final Map<String, String> F_RENAME = new HashMap<>();
+    /** §23: exact structured refs. Only collected when COLLECT_STRUCT is set (single-mod main). */
+    static final List<String[]> STRUCT = new ArrayList<>();
+    static boolean COLLECT_STRUCT = false;
 
     public static void main(String[] argv) throws Exception {
-        String decl = null, mod = null, map = null, json = null, mods = null, out = null;
+        String decl = null, mod = null, map = null, json = null, refsJson = null, mods = null, out = null;
         for (int i = 0; i < argv.length; i++) {
             switch (argv[i]) {
                 case "--decl": decl = argv[++i]; break;
                 case "--mod": mod = argv[++i]; break;
                 case "--map": map = argv[++i]; break;
                 case "--json": json = argv[++i]; break;
+                case "--refs-json": refsJson = argv[++i]; break;
                 case "--mods": mods = argv[++i]; break;
                 case "--out": out = argv[++i]; break;
                 default: break;
@@ -72,6 +79,7 @@ public class LinkCheck {
 
         Set<String> mrefs = new TreeSet<>(), frefs = new TreeSet<>(), cref = new TreeSet<>();
         collect(mod, mrefs, frefs, cref);
+        COLLECT_STRUCT = true;
 
         Map<String, List<String>> buckets = new LinkedHashMap<>();
         buckets.put("RESOLVE", new ArrayList<>());
@@ -111,6 +119,7 @@ public class LinkCheck {
                 100.0 * (ok + rn) / Math.max(1, judged), 100.0 * ok / Math.max(1, judged));
 
         if (json != null) writeJson(json, mod, tot, ok, rn, sg, ms, buckets);
+        if (refsJson != null) writeRefsJson(refsJson, mod);
         System.exit((sg + ms) == 0 ? 0 : 2);
     }
 
@@ -255,22 +264,34 @@ public class LinkCheck {
     }
 
     static void classify(Ref ref, boolean meth, Map<String, List<String>> out) {
-        if (findMember(ref, meth) != null) { out.get("RESOLVE").add(ref.toString()); return; }
-        if (jdkInherited(ref, meth)) { out.get("EXTERNAL").add(ref + "  # inherited from JDK, assumed stable"); return; }
-        // 目标==源的自检曾掉到 97.5%: com/mojang/ 下独立库类(不在任何版本 client jar)
-        // 被当成"MC 游戏 API 消失"误判 MISSING。用 decl 自证的游戏包集合豁免为 EXTERNAL。
-        if (isExternalMojangLib(ref.owner)) {
-            out.get("EXTERNAL").add(ref + "  # external library, assumed stable"); return;
+        // §23: keep the legacy details text byte-identical, but also record the exact
+        // (kind,owner,name,desc,status) tuple so downstream tools never have to guess
+        // where owner.name+desc was split when an object-typed field name contains L.
+        String status, text;
+        if (findMember(ref, meth) != null) {
+            status = "RESOLVE"; text = ref.toString();
+        } else if (jdkInherited(ref, meth)) {
+            status = "EXTERNAL"; text = ref + "  # inherited from JDK, assumed stable";
+        } else if (isExternalMojangLib(ref.owner)) {
+            // 目标==源的自检曾掉到 97.5%: com/mojang/ 下独立库类(不在任何版本 client jar)
+            // 被当成"MC 游戏 API 消失"误判 MISSING。用 decl 自证的游戏包集合豁免为 EXTERNAL。
+            status = "EXTERNAL"; text = ref + "  # external library, assumed stable";
+        } else if (!CLASSES.contains(ref.owner) && !SUPER.containsKey(ref.owner)) {
+            status = "MISSING"; text = ref + "  # owner class gone";
+        } else {
+            String key = ref.owner + "|" + ref.desc + "|" + ref.name;
+            Map<String, String> rn = meth ? M_RENAME : F_RENAME;
+            String same;
+            if (rn.containsKey(key)) {
+                status = "RENAME"; text = ref + "  -> " + rn.get(key);
+            } else if ((same = findSameNameOtherDesc(ref, meth)) != null) {
+                status = "SIGCHG"; text = ref + "  # name kept by " + same + ", descriptor changed";
+            } else {
+                status = "MISSING"; text = ref + "  # member gone";
+            }
         }
-        if (!CLASSES.contains(ref.owner) && !SUPER.containsKey(ref.owner)) {
-            out.get("MISSING").add(ref + "  # owner class gone"); return;
-        }
-        String key = ref.owner + "|" + ref.desc + "|" + ref.name;
-        Map<String, String> rn = meth ? M_RENAME : F_RENAME;
-        if (rn.containsKey(key)) { out.get("RENAME").add(ref + "  -> " + rn.get(key)); return; }
-        String same = findSameNameOtherDesc(ref, meth);
-        if (same != null) { out.get("SIGCHG").add(ref + "  # name kept by " + same + ", descriptor changed"); return; }
-        out.get("MISSING").add(ref + "  # member gone");
+        if (COLLECT_STRUCT) STRUCT.add(new String[]{meth ? "M" : "F", ref.owner, ref.name, ref.desc, status});
+        out.get(status).add(text);
     }
 
     static void loadDecl(String path) throws IOException {
@@ -360,7 +381,9 @@ public class LinkCheck {
     static void writeJson(String path, String mod, int tot, int ok, int rn, int sg, int ms,
                           Map<String, List<String>> b) throws IOException {
         StringBuilder sb = new StringBuilder();
-        sb.append("{\"mod\":\"").append(mod.replace("\\", "\\\\")).append("\",");
+        // §23: q() escapes quotes/control chars too. Ordinary paths keep the
+        // exact byte layout of the original writer (verified by the golden ticket).
+        sb.append("{\"mod\":").append(q(mod)).append(",");
         sb.append("\"total\":").append(tot).append(",");
         sb.append("\"resolve\":").append(ok).append(",\"rename\":").append(rn)
           .append(",\"sigchg\":").append(sg).append(",\"missing\":").append(ms).append(",");
@@ -374,13 +397,69 @@ public class LinkCheck {
             List<String> v = e.getValue();
             for (int i = 0; i < v.size(); i++) {
                 if (i > 0) sb.append(",");
-                sb.append("\"").append(v.get(i).replace("\\", "\\\\").replace("\"", "\\\"")).append("\"");
+                sb.append(q(v.get(i)));
             }
             sb.append("]");
         }
         sb.append("}}");
         Files.writeString(Paths.get(path), sb.toString());
         System.err.println("[linkcheck] report -> " + path);
+    }
+
+
+    static final String QQ = String.valueOf((char) 34);
+    /** §23: emit a complete JSON string, including control characters; a mod path
+     *  may contain backslashes, quotes or newlines on a hostile filesystem. */
+    static String q(String s) {
+        StringBuilder b = new StringBuilder(QQ);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\': b.append("\\\\"); break;
+                case '"': b.append("\\\""); break;
+                case '\b': b.append("\\b"); break;
+                case '\f': b.append("\\f"); break;
+                case '\n': b.append("\\n"); break;
+                case '\r': b.append("\\r"); break;
+                case '\t': b.append("\\t"); break;
+                default:
+                    if (c < 0x20) b.append(String.format("\\u%04x", (int) c));
+                    else b.append(c);
+            }
+        }
+        return b.append(QQ).toString();
+    }
+
+    /** §23: deterministic structured refs. Legacy --json details stay untouched.
+     *  q() makes every value valid JSON; refs are sorted by all five fields for
+     *  reproducibility, while --json keeps its original byte-for-byte layout. */
+    static void writeRefsJson(String path, String mod) throws IOException {
+        List<String[]> v = new ArrayList<>(STRUCT);
+        v.sort((x, y) -> {
+            for (int i = 0; i < 5; i++) { int cmp = x[i].compareTo(y[i]); if (cmp != 0) return cmp; }
+            return 0;
+        });
+        StringBuilder sb = new StringBuilder();
+        sb.append("{");
+        sb.append(q("schema")).append(":1,");
+        sb.append(q("tool")).append(":").append(q("mcport.LinkCheck")).append(",");
+        sb.append(q("mod")).append(":").append(q(mod)).append(",");
+        sb.append(q("ref_count")).append(":").append(v.size()).append(",");
+        sb.append(q("refs")).append(":[");
+        for (int i = 0; i < v.size(); i++) {
+            String[] a = v.get(i);
+            if (i > 0) sb.append(",");
+            sb.append("{");
+            sb.append(q("kind")).append(":").append(q(a[0])).append(",");
+            sb.append(q("owner")).append(":").append(q(a[1])).append(",");
+            sb.append(q("name")).append(":").append(q(a[2])).append(",");
+            sb.append(q("desc")).append(":").append(q(a[3])).append(",");
+            sb.append(q("status")).append(":").append(q(a[4]));
+            sb.append("}");
+        }
+        sb.append("]}");
+        Files.writeString(Paths.get(path), sb.toString());
+        System.err.println("[linkcheck] structured refs -> " + path);
     }
 
 

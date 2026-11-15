@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20 / §21 / §22).
+# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20 / §21 / §22 / §23).
 # 所有产物在 demo/gate/build/（gitignore），不触碰 demo/*.jar tracked 二进制。
 # 固定 jar --date，保证两次运行产物字节一致；mod jar 在所有场景前后 sha1 不变。
 set -e
@@ -350,6 +350,55 @@ run G28 python3 ../../tools/test_parse_unified.py
 ck_rc G28_rc_0 G28 0
 ck_has G28_all_ok G28 out "RESULT ALL_OK assertions=114"
 ck_nhas G28_no_traceback G28 err "Traceback"
+
+echo "== G29. section 23 self-contained refcheck regression =="
+run G29_unit python3 ../../tools/test_refcheck.py
+ck_rc G29_unit_rc_0 G29_unit 0
+ck_has G29_unit_all_ok G29_unit out "RESULT ALL_OK assertions=216"
+ck_nhas G29_unit_no_traceback G29_unit err "Traceback"
+
+echo "== G30. section 23 exact refs disambiguate one legacy text; golden bytes unchanged =="
+mkdir -p build/refcheck/linkcheck build/refcheck/api build/refcheck/mod
+$JAVAC -nowarn -cp "../../lib/*" -d build/refcheck/linkcheck ../../java/mcport/LinkCheck.java
+$JAVAC -nowarn -d build/refcheck/api src/refapi/net/minecraft/*.java src/refapi/ENDLnet/minecraft/*.java
+$JAVAC -nowarn -cp build/refcheck/api -d build/refcheck/mod src/refmod/demo/ref/RefMod.java
+jar --create --file=build/refmod.jar $JAR_DATE -C build/refcheck/mod .
+CP="build/refcheck/linkcheck:../../lib/*"
+run G30_link "$JAVA" -cp "$CP" mcport.LinkCheck \
+  --decl refcheck-decl.tsv --mod build/refmod.jar \
+  --json build/refcheck/legacy.json --refs-json build/refcheck/refs.json
+ck_rc G30_link_rc_0 G30_link 0
+ck_has G30_link_struct_written G30_link err "[linkcheck] structured refs ->"
+ck G30_legacy_byte_identical cmp -s ../../data/refcheck-legacy-golden.json build/refcheck/legacy.json
+run G30_refcheck python3 ../../tools/refcheck.py \
+  --refs-json build/refcheck/refs.json --ticket build/refcheck/legacy.json \
+  --golden ../../data/refcheck-legacy-golden.json --out build/refcheck/refcheck-report.json
+ck_rc G30_refcheck_rc_0 G30_refcheck 0
+ck_has G30_refcheck_ok G30_refcheck out "STRUCTURED_REFS_OK schema=1 structured=2 legacy=2 ambiguous=2 resolved=1 diverged=1"
+ck_has G30_refcheck_disclaimer G30_refcheck out "does NOT mean runtime-compatible"
+ck G30_golden_match has build/refcheck/refcheck-report.json '"golden_bytes_match": true'
+ck G30_heuristic_diverged has build/refcheck/refcheck-report.json '"heuristic_diverged_lines": 1'
+ck G30_ambiguous_lines has build/refcheck/refcheck-report.json '"ambiguous_legacy_lines": 2'
+ck G30_exact_b has build/refcheck/refs.json '"name":"B","desc":"LENDLnet/minecraft/Thing;"'
+ck G30_exact_blend has build/refcheck/refs.json '"name":"BLEND","desc":"Lnet/minecraft/Thing;"'
+ck G30_legacy_collision has build/refcheck/legacy.json '"net/minecraft/Api.BLENDLnet/minecraft/Thing;"'
+ck_nhas G30_no_unsupported G30_refcheck err "UNSUPPORTED"
+
+echo "== G31. section 23 hostile mod path cannot corrupt either JSON output =="
+WEIRD='build/refcheck/weird "mod"\name.jar'
+cp build/refmod.jar "$WEIRD"
+run G31_link "$JAVA" -cp "$CP" mcport.LinkCheck \
+  --decl refcheck-decl.tsv --mod "$WEIRD" \
+  --json build/refcheck/weird-legacy.json --refs-json build/refcheck/weird-refs.json
+ck_rc G31_link_rc_0 G31_link 0
+run G31_refcheck python3 ../../tools/refcheck.py \
+  --refs-json build/refcheck/weird-refs.json --ticket build/refcheck/weird-legacy.json \
+  --out build/refcheck/weird-report.json
+ck_rc G31_refcheck_rc_0 G31_refcheck 0
+ck_has G31_refcheck_ok G31_refcheck out "STRUCTURED_REFS_OK schema=1 structured=2 legacy=2"
+ck G31_escaped_refs has build/refcheck/weird-refs.json '\"mod\"\\name.jar'
+ck G31_escaped_legacy has build/refcheck/weird-legacy.json '\"mod\"\\name.jar'
+ck_nhas G31_no_bad_json G31_refcheck err "BAD_JSON"
 
 echo "GATE_RESULT assertions=$CHECKS OK"
 echo OK

@@ -26,5 +26,12 @@
       "tools/relocate.py"
     ],
     "note": "section 22; all three tools delegate to capability.parse_ref"
+  },
+  "structured_refs": {
+    "refs_json": "/work/refs.json",
+    "ticket": "/work/legacy.json",
+    "golden": "data/refcheck-legacy-golden.json",
+    "regression": "tools/test_refcheck.py",
+    "note": "section 23; structured refs remove legacy text ambiguity for new tickets only"
   }
 }

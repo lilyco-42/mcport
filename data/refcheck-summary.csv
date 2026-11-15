@@ -1,0 +1,4 @@
+schema,scenario,version,structured_refs,legacy_lines,ambiguous_legacy_lines,resolved_by_structured,heuristic_diverged_lines,golden_bytes_match,source_text_ambiguous_lines,verdict,disclaimer
+1,synthetic_collision,0.2.4,2,2,2,1,1,true,2,STRUCTURED_REFS_OK,does NOT mean runtime-compatible; exact refs do NOT prove semantic equivalence
+1,legacy_tickets,1.21.11,0,1190,3,0,0,NA,3,HEURISTIC_ONLY,does NOT mean runtime-compatible; exact refs do NOT prove semantic equivalence
+1,legacy_tickets,26.1,0,1190,51,0,0,NA,51,HEURISTIC_ONLY,does NOT mean runtime-compatible; exact refs do NOT prove semantic equivalence

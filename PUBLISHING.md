@@ -5,15 +5,15 @@
 | 内容 | 位置 |
 | --- | --- |
 | 源码、文档、测量数据 | GitHub: https://github.com/lilyco-42/mcport |
-| 打包分发件 `mcport-0.2.3-dist.tar.gz` | GitHub Release `v0.2.3` 资产 `https://github.com/lilyco-42/mcport/releases/download/v0.2.3/mcport-0.2.3-dist.tar.gz` |
+| 打包分发件 `mcport-0.2.4-dist.tar.gz` | GitHub Release `v0.2.4` 资产 `https://github.com/lilyco-42/mcport/releases/download/v0.2.4/mcport-0.2.4-dist.tar.gz` |
 | 下载入口 | https://lain42.top/downloads/ → 条目 `mcport`（当前 `mirror.url` 为 GitHub Release 直链，无票据/积分；**不是** R2 加速） |
-| 原定 R2 目标 | 桶 `lain42-dl`，key `downloads/mcport/0.2.3/mcport-0.2.3-dist.tar.gz`；目录对象 `catalog/downloads.json` 仍指向 0.1.8（凭据恢复后补传） |
+| 原定 R2 目标 | 桶 `lain42-dl`，key `downloads/mcport/0.2.4/mcport-0.2.4-dist.tar.gz`；目录对象 `catalog/downloads.json` 仍指向 0.1.8（凭据恢复后补传） |
 
 ## 发布通道状态（2026-11-16）
 
-* R2 发布链被凭据阻塞：远端 `/etc/codex-cf.env` 的 `CF_API_TOKEN` 与本机历史 token 均被 Cloudflare 返回 401；Wrangler OAuth `refresh_token` 交换返回 `invalid_grant`（已撤销）。因此本版仍**没有**上传 R2 对象，也没有改写 R2 `catalog/downloads.json`；站点 0.2.3 条目改走已存在的 GitHub Release 直链通道。
+* R2 发布链被凭据阻塞：远端 `/etc/codex-cf.env` 的 `CF_API_TOKEN` 与本机历史 token 均被 Cloudflare 返回 401；Wrangler OAuth `refresh_token` 交换返回 `invalid_grant`（已撤销）。因此本版仍**没有**上传 R2 对象，也没有改写 R2 `catalog/downloads.json`；站点 0.2.4 条目改走已存在的 GitHub Release 直链通道。
 * 直链是现有页面行为：`mirror` 有 `url` 且无 `slug` 时前端按「GitHub 直链 · 断点续传」展示；它绕过 `dl.lilyco42.top/d/mcport` 的 HMAC 票据、10 积分计费与 Cloudflare R2 加速/Range 代理。此偏差需用户确认，不作为等效加速。
-* 恢复 R2：取得具备 R2 写权限的新 CF API token 或 S3 凭据后，上传上述 tar 到目标 key，把 `catalog/downloads.json` 的 `mcport` 项更新为 0.2.3 的 `name` / `size` / `key`（保持 `slug=mcport`），再把 manifest `mirror.url` 切回 `https://dl.lilyco42.top/d/mcport` 并恢复 `mirror.slug=mcport`；发布前先备份 catalog 与 manifest。Worker / 计费 / 前端均无需改动。
+* 恢复 R2：取得具备 R2 写权限的新 CF API token 或 S3 凭据后，上传上述 tar 到目标 key，把 `catalog/downloads.json` 的 `mcport` 项更新为 0.2.4 的 `name` / `size` / `key`（保持 `slug=mcport`），再把 manifest `mirror.url` 切回 `https://dl.lilyco42.top/d/mcport` 并恢复 `mirror.slug=mcport`；发布前先备份 catalog 与 manifest。Worker / 计费 / 前端均无需改动。
 * 完整性：任何通道下载后都应核对 `mirror.sha256`；`sha256sum -c` 与 `tar tzf` 是发布验收的硬条件。
 
 
@@ -49,15 +49,16 @@
   150 条 fail-loud、6 个真实条目改写，4 个改写 class 经 `javap` / `unzip -t` / LinkCheck 复测；
   `data/stringsurface-summary.csv` 仅聚合数字，triage / fixed jar 均不随包提供。
 * §21 的 `tools/capability.py` 严格 `parse_ref` + `tools/contract_audit.py` / `tools/test_contract_audit.py` 零外部数据 110 断言全绿；`demo/gate/run.sh` G25–G27 在两版 8 份真实工单 / canonical 契约 / 合成 stub 上实跑，修复 1 条 0.2.1 已知 SIGCHG 静默放行并把契约来源、键语法、覆盖率改为 fail-loud；`data/contract-audit-summary.csv` / `contract-audit-README.md` / `contract-audit-spec.example.json` 仅聚合数字、口径与路径占位符。
-* §22 的 `tools/bridgegen.py` / `tools/relocate.py` 统一委托严格 `capability.parse_ref`，`tools/test_parse_unified.py` 与 `demo/gate/run.sh` G28 在两版 8 份真实工单上实跑（114 断言、28 场景 136 断言），197 / 1 工具内部分歧归零、零 None、零自动修复；`data/parse-unified-summary.csv` / `parse-unified-README.md` / `parse-unified-spec.example.json` 仅聚合数字、口径与路径占位符。
-* §19 / §20 的 `java/mcport/LinkGate.java` + `tools/linkgate_contract.py` 零外部数据 27 断言全绿；`demo/gate/run.sh` 28 场景 136 断言全绿（含真实 26.1 工单契约→JVM premain 阻断合成 stub、语义漂移 42→6、warn 不豁免配置错误，以及 §20 版本绑定 / 空 jar / 冲突契约 / 非法状态与非法头的 fail-loud）；`data/linkgate-summary.csv` 仅聚合数字，完整契约、stub 字节与 mod 二进制均不随包提供。
+* §22 的 `tools/bridgegen.py` / `tools/relocate.py` 统一委托严格 `capability.parse_ref`，`tools/test_parse_unified.py` 与 `demo/gate/run.sh` G28 在两版 8 份真实工单上实跑（114 断言；G28 加入时闸门为 28 场景 136 断言），197 / 1 工具内部分歧归零、零 None、零自动修复；`data/parse-unified-summary.csv` / `parse-unified-README.md` / `parse-unified-spec.example.json` 仅聚合数字、口径与路径占位符。
+* §23 的 `java/mcport/LinkCheck.java --refs-json` + `tools/refcheck.py` / `tools/test_refcheck.py` 零外部数据 216 断言全绿；`demo/gate/run.sh` G29–G31 在合成碰撞 fixture、274B 旧 `--json` 黄金字节、含引号 / 反斜杠路径与两版 8 份真实工单上实跑（structured=2 / legacy=2 / ambiguous=2 / resolved=1 / diverged=1、31 场景 158 断言），历史源文本固有歧义 3 / 51 按启发式留档；`data/refcheck-summary.csv` / `refcheck-README.md` / `refcheck-spec.example.json` 仅聚合数字、口径与路径占位符。
+* §19 / §20 的 `java/mcport/LinkGate.java` + `tools/linkgate_contract.py` 零外部数据 27 断言全绿；`demo/gate/run.sh` 31 场景 158 断言全绿（含 G29–G31 结构化引用对账）（含真实 26.1 工单契约→JVM premain 阻断合成 stub、语义漂移 42→6、warn 不豁免配置错误，以及 §20 版本绑定 / 空 jar / 冲突契约 / 非法状态与非法头的 fail-loud）；`data/linkgate-summary.csv` 仅聚合数字，完整契约、stub 字节与 mod 二进制均不随包提供。
 * §18 的 `tools/test_capability.py` 零外部数据 158 断言全绿；`tools/capability.py` 在
   四版真实声明表、三张 map/bridge、17 份 loader plan、50 份 LinkCheck 工单、2 份
   stringsurface 与 2 份 bridgegen 聚合 stats 上跑出 clean / manual / poison / full 四组闸门
   （`READY` / `NEEDS_MANUAL` / `UNSUPPORTED` / `UNSUPPORTED`）；`data/capability-*.csv`
   仅聚合数字，gate / triage / 完整能力清单均不随包提供。
 
-## 边界（务必阅读 REPORT.md §7 / §12 / §13 / §14 / §15 / §16 / §17 / §18 / §19 / §20 / §21 / §22）
+## 边界（务必阅读 REPORT.md §7 / §12 / §13 / §14 / §15 / §16 / §17 / §18 / §19 / §20 / §21 / §22 / §23）
 
 静态符号可解析率 **不等于** 能在真实客户端运行。同名同签名语义漂移无法被
 静态工具**彻底**判定（demo E2 用 42→6 实测展示；§13 给出 4.6%–14.2% 的可检测下界，
@@ -83,9 +84,10 @@ HostBridge 只解决「旧签名能链接上」这一机械层，`<init>`、已�
 26.x bridge 逆向碰撞、PLAN_ONLY、未审桥候选、unresolved 字符串一律 fail-loud。
 §21 只收紧「契约有资格说覆盖」的证据前提：canonical 契约、工单字节复现、严格 JVMS 键语法、常量池覆盖率、EXTERNAL / 第三方 / stale 分类全部可机器复核；它不新增 JVM 层加载器、不重映射、不执行 mod、不证明运行期语义，G15 的 42 与 6 同名同签名语义漂移仍是静态不可判铁证。源文本固有歧义（1.21.11 / 26.1 分别 3 / 51 条）仍留档；§22 已把独立 `bridgegen` / `relocate` 解析器差异（197 / 1 条）归零，但统一解析仍不是运行期证明。
 §22 只统一三工具对工单符号文本的严格 JVMS §4.3 切分，保持 `auto_fixed=0`、字段 `REJECT_FIELD`、relocate 只读 MISSING；它不改 mod 字节、不新增 JVM 层加载器、不消除源文本固有歧义、不证明同名同签名语义等价，也不覆盖真实客户端端到端。
+§23 只让**新工单**可从源头输出精确 `(kind,owner,name,desc,status)` 并用 multiset 对账消解文本歧义；普通 `--json` 字节不变，8 份历史真实工单的 3 / 51 条源文本歧义不能追溯改写，仍按启发式留档。`STRUCTURED_REFS_OK` 不证明运行期兼容或语义等价，不重映射、不新增 JVM 层加载器、不扩大 `PASS` / 自动修复集合，G15 的 42→6 仍是铁证。
 本工具不做「任意版本都有效」或「全平台全版本任意 mod 都能跑」的承诺。
 
 ## 回滚
 
-站点条目在 `/var/www/studio/downloads/manifest.json`；0.2.3 发布前留有
-`.bak-mcport-023-*` 备份（含 0.2.2 / GitHub 直链条目，另有 `.bak-mcport-022-*` 等更早备份），更早还有 `.bak-mcport-020-*` / `.bak-mcport-019-*` / `.bak-mcport-018-*`。回滚时把 `mcport` 条目恢复为对应备份，并把 GitHub Release `v0.2.3` 标为草稿或删除资产；R2 `catalog/downloads.json` 本版未改写，无需回滚。待 R2 写凭据恢复后按上一节补传并统一切换。
+站点条目在 `/var/www/studio/downloads/manifest.json`；0.2.4 发布前留有
+`.bak-mcport-024-*` 备份（含 0.2.3 / GitHub 直链条目，另有 `.bak-mcport-023-*` / `.bak-mcport-022-*` 等更早备份），更早还有 `.bak-mcport-020-*` / `.bak-mcport-019-*` / `.bak-mcport-018-*`。回滚时把 `mcport` 条目恢复为对应备份，并把 GitHub Release `v0.2.4` 标为草稿或删除资产；R2 `catalog/downloads.json` 本版未改写，无需回滚。待 R2 写凭据恢复后按上一节补传并统一切换。

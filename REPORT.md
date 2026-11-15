@@ -1679,6 +1679,44 @@ LinkGate 把「静态预言」推进到「启动期零修改拒绝」，但不�
 0.2.3 把「同一份工单被三个工具切成三套键」这一**自造不稳定源**从 197 / 1 归零；它没有新增 JVM 层加载器、没有重映射 mod、没有改变 `LinkGate` 的 `PASS` 语义、没有把 `COVERAGE_OK` 升级成「能跑」。`auto_fixed=0`、字段 `REJECT_FIELD`、relocate 只读 MISSING、179 SIGCHG + 423 MISSING 的人工缺口、真实客户端 / Fabric / LWJGL / Mixin 端到端、反射 / 配置 / 资源字符串运行期取值、同名同签名语义漂移静态不可判全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
 
 
+## 23. 结构化引用输出与歧义对账（McPort 0.2.4）
+
+### 23.1 §21.4 / §22.5 的 3 / 51 是源文本固有歧义，不是三工具分歧
+
+`java/mcport/LinkCheck.java` 的 `Ref.toString()` 把精确 `(kind,owner,name,desc)` 压成 `owner + "." + name + desc`。方法引用靠首个 `(` 可切开；字段引用把成员名和 `L...;` 对象描述符直接相接，成员名以 `L` 结尾或含 `L` 时，严格 JVMS §4.3 语法允许多个 `(name,desc)` 切分。1.21.11 的 `GlStateManager.BLENDLcom/mojang/blaze3d/platform/GlStateManager$class_1017;` 既可读成 `BLEND` + `Lcom/...;`，也可读成 `B` + `LENDLcom/...;`；26.1 的 `WolfCollarLayer.WOLF_COLLAR_LOCATIONLnet/minecraft/resources/Identifier;` 有 5 个合法切分。`tools/capability.py` 取最长合法成员名只是启发式：两版 8 份真实工单分别有 3 / 51 条源文本固有歧义，静态无法判定哪一个是常量池真值。0.2.3 让三个工具共用这一启发式，消除了 197 / 1 条工具内部分歧，却没有、也不可能消除源文本本身的歧义。
+
+### 23.2 合成碰撞是真实反证
+
+新增 `demo/gate/src/refapi/**` 与 `demo/gate/src/refmod/**` 纯手写合成 Java；`demo/gate/refcheck-decl.tsv` 声明两个不同字段：`net/minecraft/Api.BLEND:Lnet/minecraft/Thing;` 与 `net/minecraft/Api.B:LENDLnet/minecraft/Thing;`。`javap -verbose` 证明合成 mod jar 常量池里确有两个不同 `Fieldref`，但旧 `--json` 把两条都渲染成 `net/minecraft/Api.BLENDLnet/minecraft/Thing;`。未改 LinkCheck 生成的 274B `data/refcheck-legacy-golden.json` 里，`details.RESOLVE` 两条逐字相同；`capability.parse_ref` 也把两条都猜成 `BLEND`。这证明启发式会真的把一条引用判错，而不只是理论上的不唯一。
+
+### 23.3 `--refs-json` 从源头输出精确五元组，旧 `--json` 字节不变
+
+0.2.4 在 `LinkCheck.main()` 增加可选 `--refs-json <path>`；仅单 mod 路径设 `COLLECT_STRUCT=true`，`classify()` 在决定 status 与 legacy text 的同时记录精确 `(kind,owner,name,desc,status)`；`writeRefsJson()` 按五元组字典序写 `{"schema":1,"tool":"mcport.LinkCheck","mod":...,"ref_count":N,"refs":[...]}`，无尾换行。`batch()` / `analyze()` 与五桶计数逻辑不变。
+
+关键约束：普通 `--json` 的 `details` 文本逐字节不变，因此 8 份历史真实工单、`source_sha256`、canonical 契约与 `demo/gate/run.sh` G25 的 `regenerated_bytes_match` 全部不受影响；新增结构化输出走独立文件，绝不回填旧工单。`q(String)` 同时把旧 writer 的 `mod` / `details` 字符串改成完整 JSON 转义（反斜杠、双引号、控制字符），普通路径仍与 274B 黄金文件 `cmp` 一致，含引号 / 反斜杠的奇怪路径则从过去的非法 JSON 变为合法 JSON。
+
+### 23.4 `tools/refcheck.py`：multiset 对账，启发式与真值分歧如实报告
+
+纯标准库离线审计器 `tools/refcheck.py` 通过 `importlib.util` 复用 `tools/capability.py` 与 `tools/contract_audit.py` 的严格 JVMS 校验。`read_structured()` 要求 `schema=1`、`tool=mcport.LinkCheck`、五键精确集合、`M|F`、五状态、合法 owner / 成员名 / 描述符、五元组严格升序且唯一；`read_ticket()` 要求旧工单五桶、标量与 `details` 长度及 `total` 自洽。`strict_splits()` 枚举每条 legacy 文本的全部合法切分；`reconcile()` 只用结构化池做 multiset 消解（确定性切分顺序，不依赖 `PYTHONHASHSEED`），每条文本消掉一个真值，任何剩余结构化 ref 或无法匹配的文本都触发 `TICKET_REF_MISMATCH`。启发式 `capability.parse_ref` 与真值不同时记 `HEURISTIC_DIVERGED` 并写进报告，不静默洗白。
+
+成功 stdout 强制附 `does NOT mean runtime-compatible; exact refs do NOT prove semantic equivalence`；`BAD_JSON` / `BAD_UTF8` / `IO_ERROR` / `MOD_MISMATCH` / `GOLDEN_MISMATCH` / 坏 schema / 坏五元组 / 坏工单形状都写 `UNSUPPORTED` 报告并 `rc=1`。`--golden` 可选地把旧 `--json` 原始字节与黄金文件比对。
+
+### 23.5 实测与全量回归
+
+| 证据 | 结果 |
+| --- | --- |
+| 合成碰撞 `LinkCheck --refs-json` | structured=2 / legacy=2 / ambiguous=2 / resolved=1 / diverged=1 / golden_bytes_match=true |
+| 1.21.11 / 26.1 历史真实工单 | 每版 1190 行；源文本固有歧义 3 / 51 仍 `HEURISTIC_ONLY`，原始字节不变 |
+| `tools/test_refcheck.py` | 216 条自包含断言，零网络、零游戏 jar、零官方映射、零第三方 mod 二进制 |
+| `demo/gate/run.sh` G29–G31 | G29 216 断言；G30 编译合成 jar + 274B golden `cmp` + 结构化 refs 消解；G31 含引号 / 反斜杠 mod 路径合法 JSON |
+| 全量回归 | javac 32 个 class；9 套 Python 回归 840 断言；`demo/run.sh` 两遍 5 个 tracked jar 可复现；gate 两遍 **31 场景 158 断言**；`real26` 无自备 jar 干净 SKIP；`git diff --check` |
+
+原 G1–G28 的 136 条断言逐条保留，G15 同名同签名 42→6 仍 `PASS`；`data/refcheck-summary.csv` / `refcheck-README.md` / `refcheck-spec.example.json` 只含聚合数字、口径与路径占位符。
+
+### 23.6 结论与残余
+
+0.2.4 从源头消除**新工单**的字段文本歧义，并用黄金字节证明旧 `--json` 普通路径没有回归；它不能追溯式消解 8 份历史真实工单里的 3 / 51 条歧义，因为这些工单没有配套 `--refs-json` 且字节必须保持以维持 `source_sha256`。本版不新增 JVM 层加载器、不重映射 mod、不改 `LinkGate` 的 `PASS` 语义、不扩大自动修复集合、不证明 `STRUCTURED_REFS_OK` 等于能跑或行为一致。179 SIGCHG + 423 MISSING 人工缺口、真实客户端 / Fabric / LWJGL / Mixin 端到端、反射 / 配置 / 资源字符串运行期取值、同名同签名语义漂移静态不可判全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -1709,4 +1747,5 @@ mod jar、2 张目标声明表、2 张映射表上的 audit / rewrite 实跑、4
 输入字节、triage / fixed jar 均不分发，聚合数字见 `data/stringsurface-summary.csv`）。
 §18 来自 `tools/capability.py` / `tools/test_capability.py` 在四版真实声明表、三张 map/bridge、17 份 loader plan、50 份 LinkCheck 工单、2 份 stringsurface 与 2 份 bridgegen 聚合 stats 上的四组闸门实跑与 156 条自包含断言（2026-11-15；50 条 evidence、14584 条引用零坏格式；输入字节、gate / triage / 完整能力清单均不分发，聚合数字见 `data/capability-*.csv`）。
 §21 来自 `tools/capability.py` 的严格 JVMS §4.3 `parse_ref` 修复、`tools/contract_audit.py` / `tools/test_contract_audit.py` 与 `demo/gate/run.sh` G25–G27 在两版 8 份真实 LinkCheck 工单、两份 canonical 契约、一个合成 stub jar 上的实跑（2026-11-16；0 坏描述符、契约字节 74091 / 97115、110 条自包含断言、27 场景 133 断言；输入字节与完整契约不分发，聚合数字见 `data/contract-audit-summary.csv`）。
-§22 来自 `tools/bridgegen.py` / `tools/relocate.py` 委托 `tools/capability.py` 严格 `parse_ref` 的源码改动、`tools/test_parse_unified.py` 与 `demo/gate/run.sh` G28 在两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；每版 1190 行、197 / 1 → 0、零 None、114 条自包含断言、28 场景 136 断言；完整工单外的输入字节不分发，聚合数字见 `data/parse-unified-summary.csv`）。*
+§22 来自 `tools/bridgegen.py` / `tools/relocate.py` 委托 `tools/capability.py` 严格 `parse_ref` 的源码改动、`tools/test_parse_unified.py` 与 `demo/gate/run.sh` G28 在两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；每版 1190 行、197 / 1 → 0、零 None、114 条自包含断言、28 场景 136 断言；完整工单外的输入字节不分发，聚合数字见 `data/parse-unified-summary.csv`）。
+§23 来自 `java/mcport/LinkCheck.java` 的 `--refs-json` 结构化输出、`tools/refcheck.py` / `tools/test_refcheck.py` 与 `demo/gate/run.sh` G29–G31 在合成碰撞 fixture、274B 旧 `--json` 黄金字节、含引号 / 反斜杠路径及两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；structured=2 / legacy=2 / ambiguous=2 / resolved=1 / diverged=1、216 条自包含断言、31 场景 158 断言、历史源文本固有歧义 3 / 51 仍留档；合成 jar 与临时报告不分发，聚合数字见 `data/refcheck-summary.csv`）。*

@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "version": "0.2.4",
+  "refs_json": "/work/refs.json",
+  "ticket": "/work/legacy.json",
+  "golden": "data/refcheck-legacy-golden.json",
+  "out": "/work/refcheck.json",
+  "regression": "tools/test_refcheck.py",
+  "gate_scenarios": [
+    "G29",
+    "G30",
+    "G31"
+  ],
+  "note": "section 23 structured refs reconciliation; paths are placeholders; no game jar, Mojang mapping or mod binary is embedded"
+}
