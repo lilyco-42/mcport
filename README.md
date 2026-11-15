@@ -246,19 +246,22 @@ python3 tools/capability.py --spec /work/spec.json --out-dir /work/gate
 `data/capability-README.md`，路径模板见 `data/capability-spec.example.json`。
 详见 REPORT §18.6 / §18.9。
 
-## 启动期能力闸门与契约审计（REPORT §19 / §20 / §21）
+## 启动期能力闸门与契约审计（REPORT §19 / §20 / §21 / §22）
 
 `LinkGate` 是不改 mod 字节的 `-javaagent`：在 `premain` 用纯 JDK 两遍解析 class 常量池，对照由 `tools/linkgate_contract.py` 从真实 LinkCheck 工单生成的契约，把 `MISSING` / `SIGCHG` 引用在启动前干净拒绝（rc=2、无 native abort）；`RENAME` 只计数，未知引用默认 `RESOLVE`，`warn` 只豁免已知 blocker 不豁免读表失败。§20 把契约 `version` 头绑定到 `-Dmcport.gate.version`，并把空 jar / 冲突状态 / 非法头 / 状态拼写错误全部改为 `FAIL`。两版真实工单各 4 份 / 1190 原始引用 / 1019 唯一引用；26.1 有 68 SIGCHG + 223 MISSING 会阻断。
 
 ```bash
-bash demo/gate/run.sh                          # 27 场景 133 断言，含真实契约 JVM 阻断与 42→6 语义漂移铁证
+bash demo/gate/run.sh                          # 28 场景 136 断言，含真实契约 JVM 阻断与 42→6 语义漂移铁证
 python3 tools/test_linkgate_contract.py        # 27 断言 + 可选真实工单聚合回归
 python3 tools/test_contract_audit.py           # 110 断言，含真实 26.1 工单 canonical 复现
+python3 tools/test_parse_unified.py              # 114 断言，三工具严格解析 + 8 真实工单聚合
 ```
 
 §21 的 `tools/contract_audit.py` 是纯标准库离线审计器：严格校验 canonical 契约头 / 四列 TAB / JVMS 描述符，逐字节复现上游工单，扫描 mod jar 常量池并量化 covered / unknown / unclassified / stale / NEEDS_MANUAL；本轮还修掉 `capability.parse_ref` 的一个真实 SIGCHG 静默放行 bug。
 
-聚合见 `data/linkgate-summary.csv` 与 `data/contract-audit-summary.csv`，口径见 `data/linkgate-README.md` / `data/contract-audit-README.md`，路径模板见 `data/linkgate-spec.example.json` / `data/contract-audit-spec.example.json`。**`PASS` / `COVERAGE_OK` 只表示静态链接符号或契约覆盖，不证明能跑或语义一致。**
+聚合见 `data/linkgate-summary.csv` / `data/contract-audit-summary.csv` / `data/parse-unified-summary.csv`，口径见 `data/linkgate-README.md` / `data/contract-audit-README.md` / `data/parse-unified-README.md`，路径模板见对应 `*-spec.example.json`。**`PASS` / `COVERAGE_OK` 只表示静态链接符号或契约覆盖，不证明能跑或语义一致。**
+
+§22 把 `bridgegen.py` / `relocate.py` 的 `parse_ref` 委托给 `capability.py` 的唯一严格 JVMS §4.3 解析器；对外四元组形状不变，8 份真实工单的 197 / 1 内部分歧归零，源文本固有歧义 3 / 51 仍留档，统一解析不扩大自动修复集合、不证明运行期语义。
 
 
 ## 构建
@@ -274,6 +277,7 @@ python3 tools/test_stringsurface.py                     # §17 字符串表面 7
 python3 tools/test_capability.py                        # §18 出货闸门 158 断言回归
 python3 tools/test_linkgate_contract.py                 # §19/§20 启动期契约 27 断言回归
 python3 tools/test_contract_audit.py                    # §21 契约完整性与覆盖率 110 断言回归
+python3 tools/test_parse_unified.py                      # §22 三工具统一严格解析 114 断言回归
 ```
 
 > **CI 注意**：若 `LANG`/`LC_ALL` 为空，JDK 用 `ANSI_X3.4-1968` 解码路径，中文目录会让 `javac`

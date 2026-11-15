@@ -25,16 +25,20 @@ import argparse
 import collections
 import csv
 import hashlib
+import importlib.util
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 SCHEMA = 1
-METHOD_RE = re.compile(r"^(.+?)\.([^.(]+)(\(.*\).*)$")
-FIELD_RE = re.compile(r"^(.+?)\.([^.(]+)([A-Za-z\[$;/].*)$")
+# REPORT section 22: one strict JVMS 4.3 reference parser for every tool.
+HERE = os.path.dirname(os.path.abspath(__file__))
+_cap_spec = importlib.util.spec_from_file_location(
+    'mcport_capability_for_bridgegen', os.path.join(HERE, 'capability.py'))
+_cap = importlib.util.module_from_spec(_cap_spec)
+_cap_spec.loader.exec_module(_cap)
 CTOR = {"<init>", "<clinit>"}
 PRIMS = set("BCDFIJSZ")
 # JLS 5.1.2 widening primitive conversion; the reverse direction is NOT allowed.
@@ -44,15 +48,17 @@ INTLIKE = set("BSCI")
 
 
 def parse_ref(s: str):
-    """Return (owner, name, desc, M|F) from a LinkCheck detail line."""
-    head = s.split("  #")[0].strip()
-    m = METHOD_RE.match(head)
-    if m:
-        return m.group(1), m.group(2), m.group(3), "M"
-    m = FIELD_RE.match(head)
-    if m:
-        return m.group(1), m.group(2), m.group(3), "F"
-    return None
+    """Return (owner, name, desc, M|F) from a LinkCheck detail line.
+
+    REPORT section 22: delegate to the one strict JVMS 4.3 parser in
+    capability.py instead of maintaining a second loose regex grammar.
+    The external 4-tuple shape is unchanged for all bridgegen callers.
+    """
+    p = _cap.parse_ref(s)
+    if p is None:
+        return None
+    kind, owner, name, desc = p
+    return owner, name, desc, kind
 
 
 def split_desc(d: str):

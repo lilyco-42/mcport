@@ -7,23 +7,29 @@ are runtime inputs. Output supplement.tsv contains only class-pair C lines.
 Only exact, unique, same-simple-name class moves with a directly declared
 member after descriptor remapping are accepted; everything else fails loud.
 """
-import argparse, collections, csv, json, os, re
+import argparse, collections, csv, importlib.util, json, os
 
 SCHEMA = 1
-METHOD_RE = re.compile(r'^(.+?)\.([^.(]+)(\(.*\).*)$')
-FIELD_RE = re.compile(r'^(.+?)\.([A-Za-z0-9_$]+)(L[^;]*;|\[?[BCDFIJSZ])$')
+# REPORT section 22: delegate all reference parsing to one strict grammar.
+HERE = os.path.dirname(os.path.abspath(__file__))
+_cap_spec = importlib.util.spec_from_file_location(
+    'mcport_capability_for_relocate', os.path.join(HERE, 'capability.py'))
+_cap = importlib.util.module_from_spec(_cap_spec)
+_cap_spec.loader.exec_module(_cap)
 CTOR = ('<init>', '<clinit>')
 
 
 def parse_ref(s):
-    h = s.split('  #')[0].strip()
-    m = METHOD_RE.match(h)
-    if m:
-        return m.group(1), m.group(2), m.group(3), False
-    m = FIELD_RE.match(h)
-    if m:
-        return m.group(1), m.group(2), m.group(3), True
-    return None
+    """Return (owner, name, desc, is_field) using the shared strict parser.
+
+    REPORT section 22: the fourth element stays a boolean (not M|F) so all
+    relocation callers and their direct_f/direct_m lookups are unchanged.
+    """
+    p = _cap.parse_ref(s)
+    if p is None:
+        return None
+    kind, owner, name, desc = p
+    return owner, name, desc, kind == 'F'
 
 
 def simple(owner):

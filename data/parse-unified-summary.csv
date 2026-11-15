@@ -1,0 +1,3 @@
+schema,version,tickets,lines,external_lines,external_keys,resolve,sigchg,missing,rename,unique_game_refs,ambiguous_field_texts,none_capability,none_bridgegen,none_relocate,diff_0_2_2_bridgegen,diff_0_2_2_relocate,diff_0_2_3_bridgegen,diff_0_2_3_relocate,shader_key,disclaimer
+1,1.21.11,4,1190,28,27,843,99,220,0,1019,3,0,0,0,197,1,0,0,"F|com/mojang/blaze3d/systems/RenderSystem|shaderLightDirections|[Lorg/joml/Vector3f;",strict parser convergence does NOT prove runtime or semantic compatibility
+1,26.1,4,1190,28,27,831,74,257,0,1019,51,0,0,0,197,1,0,0,"F|com/mojang/blaze3d/systems/RenderSystem|shaderLightDirections|[Lorg/joml/Vector3f;",strict parser convergence does NOT prove runtime or semantic compatibility

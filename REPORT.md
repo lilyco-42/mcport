@@ -1608,7 +1608,7 @@ LinkGate 把「静态预言」推进到「启动期零修改拒绝」，但不�
 
 根因修在共用入口 `capability.parse_ref`：新增 `STRICT_FIELD_DESC` / `STRICT_METHOD_DESC`，对象类型必须是 `L` + 合法内部类名 + `;`，数组、参数表、返回值都按 JVMS §4.3 完整校验；字段引用收集全部合法 `(name, desc)` 切分并取**最长合法成员名**（最短合法描述符）。上例恢复为 `name=shaderLightDirections`、`desc=[Lorg/joml/Vector3f;`。旧 `FIELD_DESC` / `METHOD_DESC` / `OBJ_IN_DESC` 保留给其他既有逻辑，不改 `LinkGate` 的宽松向后兼容解析，也不改 12 个旧 demo 手写契约。`tools/test_capability.py` 新增 2 条断言锁定此根因，156 → 158 断言。
 
-修复不是「解析出绝对真值」：源文本固有歧义仍在。按严格语法统计，1.21.11 有 3 条、26.1 有 51 条字段文本存在多个合法 `(name, desc)` 切分；工具一律选最长合法成员名并在本节记录，绝不把启发式写成证明。独立解析器 `tools/bridgegen.py:parse_ref` 与 `tools/relocate.py:parse_ref` 返回形状不同且各有旧粗正则，按统一 `(owner,name,desc)` 三元组比较，两版仍分别有 197 / 1 条与严格解析不一致；本轮只修契约生成器与审计器共用的 `capability.parse_ref`，不扩大 §16 / §15 回归面，差异作为残余留档。
+修复不是「解析出绝对真值」：源文本固有歧义仍在。按严格语法统计，1.21.11 有 3 条、26.1 有 51 条字段文本存在多个合法 `(name, desc)` 切分；工具一律选最长合法成员名并在本节记录，绝不把启发式写成证明。独立解析器 `tools/bridgegen.py:parse_ref` 与 `tools/relocate.py:parse_ref` 返回形状不同且各有旧粗正则，按统一 `(owner,name,desc)` 三元组比较，两版仍分别有 197 / 1 条与严格解析不一致；本轮只修契约生成器与审计器共用的 `capability.parse_ref`，不扩大 §16 / §15 回归面，差异作为残余留档（0.2.3 的 §22 才统一三工具）。
 
 ### 21.2 纯标准库离线审计器：`tools/contract_audit.py`
 
@@ -1636,7 +1636,47 @@ LinkGate 把「静态预言」推进到「启动期零修改拒绝」，但不�
 
 ### 21.4 结论与残余
 
-0.2.2 **修掉了一个已发布链路的真实静默放行，并把「契约质量依赖上游工单」从口头残余变成可机器复核的三档证据**；它没有新增 JVM 层加载器、没有重映射任何 mod、没有扩大「能跑」集合。G15 的同名同签名 42→6 对 `LinkGate` 仍是 `PASS`，对审计器也最多是 `COVERAGE_OK`，因为 JVMS §5.4.3 只保证按名+描述符链接，同名同签名语义漂移静态不可判。§21 看不到反射 / 配置 / 资源字符串的运行期取值（§17 只精确审过字符串表面），不覆盖真实客户端 / Fabric / LWJGL / Mixin 端到端；179 SIGCHG + 423 MISSING 的人工缺口不变；源文本歧义 3 / 51、独立解析器差异 197 / 1 仍需人工或下一轮统一。严格审计是「有资格说 PASS」的前提，不是「能跑」的证明。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付继续是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
+0.2.2 **修掉了一个已发布链路的真实静默放行，并把「契约质量依赖上游工单」从口头残余变成可机器复核的三档证据**；它没有新增 JVM 层加载器、没有重映射任何 mod、没有扩大「能跑」集合。G15 的同名同签名 42→6 对 `LinkGate` 仍是 `PASS`，对审计器也最多是 `COVERAGE_OK`，因为 JVMS §5.4.3 只保证按名+描述符链接，同名同签名语义漂移静态不可判。§21 看不到反射 / 配置 / 资源字符串的运行期取值（§17 只精确审过字符串表面），不覆盖真实客户端 / Fabric / LWJGL / Mixin 端到端；179 SIGCHG + 423 MISSING 的人工缺口不变；源文本歧义 3 / 51 仍留档；独立解析器差异 197 / 1 已由 0.2.3 的 §22 归零（见下文）。严格审计是「有资格说 PASS」的前提，不是「能跑」的证明。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付继续是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
+
+
+## 22. 三工具共用严格 JVMS 引用解析器（McPort 0.2.3）
+
+### 22.1 §21.4 的 197 / 1 是工具内部分歧，不是游戏 API 差异
+
+0.2.2 已把 `capability.parse_ref` 修成严格 JVMS §4.3 语法，却只让契约生成器与审计器共用它；`tools/bridgegen.py` 与 `tools/relocate.py` 仍各自用宽松正则切分 `LinkCheck.toString()` 的 `owner + "." + name + desc` 文本。两版 8 份真实工单按统一 `(owner,name,desc)` 比较，分别有 197 条 bridgegen 分歧、1 条 relocate 分歧。最典型的 26.1 SIGCHG 字段 `com/mojang/blaze3d/systems/RenderSystem.shaderLightDirections[Lorg/joml/Vector3f;` 被旧 bridgegen 切成 name=`shaderLightDirections[Lorg/joml/Vector3f`、desc=`;`，被旧 relocate 切成 name=`shader`、desc=`LightDirections[Lorg/joml/Vector3f;`；二者都永远不会命中 class 常量池。`tools/bridgegen.py` 对字段一律 `REJECT_FIELD`，`tools/relocate.py` 只读 `details.MISSING`，所以这些错键没有扩大自动修复集合，却污染 triage、opcode 查询键与迁移候选键。
+
+### 22.2 唯一解析器与两种向后兼容的对外形状
+
+0.2.3 删除两份宽松 `METHOD_RE` / `FIELD_RE` 与 `import re`，用 `tools/linkgate_contract.py` 已验证的 `importlib.util` 模式把两个 `parse_ref` 委托给 `tools/capability.py` 的唯一严格实现；`PRIMS` / `WIDEN` / `INTLIKE` / `split_desc` / `CTOR`、五轮 `map_desc`、严格三级接受、`auto_fixed=0` 全部不变。
+
+| 工具 | 旧解析结果 | 0.2.3 统一后的对外形状 |
+
+| --- | --- | --- |
+| `capability.py` | 严格 JVMS §4.3，最长合法成员名 | `(M|F, owner, name, desc)` |
+| `bridgegen.py` | 两份宽松正则，字段取最短 name | `(owner, name, desc, M|F)`（委托） |
+| `relocate.py` | 两份宽松正则，不支持对象数组字段 | `(owner, name, desc, is_field_bool)`（委托） |
+
+严格语法拒绝 `LBad[Name;`、截断描述符、无描述符字段与噪声尾串；兼容 `  # ` 注释和 `  -> ` 箭头剥离。两个工具都通过 monkeypatch 断言确实调用了共享 `parse_ref`，而不是又复制一份规则。
+
+### 22.3 `tools/test_parse_unified.py`：114 条自包含断言
+
+新回归只依赖纯标准库、仓库内 8 份 `data/hotmods/*.json` 聚合工单与合成符号文本，零网络、零游戏 jar、零官方映射、零 mod 二进制。它覆盖三种 tuple 形状、12 组合法方法 / 字段 / 对象数组 / 构造器 / 注释 / 箭头用例、8 组非法描述符、精确 shader 键、旧解析器反证、委托调用，以及两版真实工单聚合：
+
+| 版本 | 工单 / 行 | EXTERNAL 行 / 唯一键 | RESOLVE / SIGCHG / MISSING / RENAME | 非 EXTERNAL 唯一键 | 固有歧义 | 0.2.2 分歧 bg / rel | 0.2.3 分歧 bg / rel | 三工具 None |
+
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1.21.11 | 4 / 1190 | 28 / 27 | 843 / 99 / 220 / 0 | 1019 | 3 | 197 / 1 | 0 / 0 | 0 / 0 / 0 |
+| 26.1 | 4 / 1190 | 28 / 27 | 831 / 74 / 257 / 0 | 1019 | 51 | 197 / 1 | 0 / 0 | 0 / 0 / 0 |
+
+28 条 EXTERNAL 原始行去重为 27 个精确键（`Codec.fieldOf` 在两份工单重复）；原有 `source_sha256`、canonical 契约字节、两版 `data/contract-audit-summary.csv` 与 `data/linkgate-summary.csv` 全部不变。源文本固有歧义 3 / 51 仍只留档：严格语法下同一字段文本存在多个合法 `(name,desc)` 切分，工具取最长合法成员名，但不把启发式写成证明。
+
+### 22.4 G28 与全量回归
+
+`demo/gate/run.sh` 新增 G28：运行 `tools/test_parse_unified.py`，断言 rc=0、`RESULT ALL_OK assertions=114`、stderr 无 `Traceback`。闸门从 27 场景 133 断言扩到 **28 场景 136 断言**，原 G1–G27（含 G15 同名同签名 42→6 仍 PASS、G25–G27 canonical 审计）逐条保留。全量回归为 javac 32 个 class、`py_compile tools/*.py`、8 套 Python 回归共 **624 断言**、`demo/run.sh` 两遍 5 个 tracked jar 可复现、`demo/gate/run.sh` 两遍 136 断言、`demo/real26/run.sh` 在无自备 26.1 jar 时干净 SKIP、`git diff --check`。
+
+### 22.5 结论与残余
+
+0.2.3 把「同一份工单被三个工具切成三套键」这一**自造不稳定源**从 197 / 1 归零；它没有新增 JVM 层加载器、没有重映射 mod、没有改变 `LinkGate` 的 `PASS` 语义、没有把 `COVERAGE_OK` 升级成「能跑」。`auto_fixed=0`、字段 `REJECT_FIELD`、relocate 只读 MISSING、179 SIGCHG + 423 MISSING 的人工缺口、真实客户端 / Fabric / LWJGL / Mixin 端到端、反射 / 配置 / 资源字符串运行期取值、同名同签名语义漂移静态不可判全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
 
 
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
@@ -1668,4 +1708,5 @@ mod jar、2 张目标声明表、2 张映射表上的 audit / rewrite 实跑、4
 78 条自包含断言（2026-11-15；7288 次字符串出现、70 条精确可改、150 条 fail-loud、6 个真实条目改写；
 输入字节、triage / fixed jar 均不分发，聚合数字见 `data/stringsurface-summary.csv`）。
 §18 来自 `tools/capability.py` / `tools/test_capability.py` 在四版真实声明表、三张 map/bridge、17 份 loader plan、50 份 LinkCheck 工单、2 份 stringsurface 与 2 份 bridgegen 聚合 stats 上的四组闸门实跑与 156 条自包含断言（2026-11-15；50 条 evidence、14584 条引用零坏格式；输入字节、gate / triage / 完整能力清单均不分发，聚合数字见 `data/capability-*.csv`）。
-§21 来自 `tools/capability.py` 的严格 JVMS §4.3 `parse_ref` 修复、`tools/contract_audit.py` / `tools/test_contract_audit.py` 与 `demo/gate/run.sh` G25–G27 在两版 8 份真实 LinkCheck 工单、两份 canonical 契约、一个合成 stub jar 上的实跑（2026-11-16；0 坏描述符、契约字节 74091 / 97115、110 条自包含断言、27 场景 133 断言；输入字节与完整契约不分发，聚合数字见 `data/contract-audit-summary.csv`）。*
+§21 来自 `tools/capability.py` 的严格 JVMS §4.3 `parse_ref` 修复、`tools/contract_audit.py` / `tools/test_contract_audit.py` 与 `demo/gate/run.sh` G25–G27 在两版 8 份真实 LinkCheck 工单、两份 canonical 契约、一个合成 stub jar 上的实跑（2026-11-16；0 坏描述符、契约字节 74091 / 97115、110 条自包含断言、27 场景 133 断言；输入字节与完整契约不分发，聚合数字见 `data/contract-audit-summary.csv`）。
+§22 来自 `tools/bridgegen.py` / `tools/relocate.py` 委托 `tools/capability.py` 严格 `parse_ref` 的源码改动、`tools/test_parse_unified.py` 与 `demo/gate/run.sh` G28 在两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；每版 1190 行、197 / 1 → 0、零 None、114 条自包含断言、28 场景 136 断言；完整工单外的输入字节不分发，聚合数字见 `data/parse-unified-summary.csv`）。*

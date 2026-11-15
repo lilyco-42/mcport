@@ -23,5 +23,13 @@
     "out": "/work/contract-audit.json",
     "summary": "/work/contract-audit.csv",
     "note": "section 21 canonical audit; paths are placeholders"
+  },
+  "parse_unified": {
+    "regression": "tools/test_parse_unified.py",
+    "tickets": [
+      "data/hotmods/26.1__*.json"
+    ],
+    "summary": "/work/parse-unified-summary.csv",
+    "note": "section 22 strict parser convergence; paths are placeholders"
   }
 }

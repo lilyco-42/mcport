@@ -1,4 +1,4 @@
-# Contract audit 聚合数据说明（REPORT §21）
+# Contract audit 聚合数据说明（REPORT §21 / §22）
 
 本目录只含**可分发聚合数字、格式口径与路径占位符**，不含 Mojang client jar、官方 ProGuard 映射、第三方 mod 字节码、完整 LinkGate 契约或 audit JSON。完整契约由 `tools/linkgate_contract.py` 在调用方本机生成；`tools/contract_audit.py` 只读取调用方自备的契约、工单和 mod jar，报告写入 `--out` / `--summary` 指定的目录。
 
@@ -30,4 +30,4 @@ python3 tools/contract_audit.py --contract /work/capability-26.1.tsv \
 
 ## 边界
 
-`COVERAGE_OK` 不等于运行期兼容、不等于行为等价、不等于真实客户端启动成功；同名同签名语义漂移（demo G15 的 42 与 6）静态不可彻底判定。审计器只扫 class 常量池的 tag 9/10/11 成员引用，不执行 mod、不解析反射/配置/资源字符串的运行期取值、不修任何引用。`--allow-third-party` / `--coverage-only` 是人工显式豁免，不是稳定性证明。完整契约、audit JSON/CSV、stub jar 与任何 mod 二进制均不随本仓库分发。
+`COVERAGE_OK` 不等于运行期兼容、不等于行为等价、不等于真实客户端启动成功；同名同签名语义漂移（demo G15 的 42 与 6）静态不可彻底判定。审计器只扫 class 常量池的 tag 9/10/11 成员引用，不执行 mod、不解析反射/配置/资源字符串的运行期取值、不修任何引用。`--allow-third-party` / `--coverage-only` 是人工显式豁免，不是稳定性证明。完整契约、audit JSON/CSV、stub jar 与任何 mod 二进制均不随本仓库分发。§22 的统一解析器回归见 `../tools/test_parse_unified.py` 与 `data/parse-unified-README.md`；它消除的是工具内部 197 / 1 条误切分，不是运行期兼容证明。

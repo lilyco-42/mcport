@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "version": "26.1",
+  "tickets": [
+    "data/hotmods/26.1__*.json"
+  ],
+  "tools": [
+    "tools/capability.py",
+    "tools/bridgegen.py",
+    "tools/relocate.py"
+  ],
+  "regression": "tools/test_parse_unified.py",
+  "out": "/work/parse-unified-summary.csv",
+  "note": "section 22 strict parser convergence; paths are placeholders; no game jar, Mojang mapping or mod binary is embedded"
+}

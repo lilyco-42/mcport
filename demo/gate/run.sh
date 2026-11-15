@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20).
+# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20 / §21 / §22).
 # 所有产物在 demo/gate/build/（gitignore），不触碰 demo/*.jar tracked 二进制。
 # 固定 jar --date，保证两次运行产物字节一致；mod jar 在所有场景前后 sha1 不变。
 set -e
@@ -344,6 +344,12 @@ run G27 python3 ../../tools/contract_audit.py \
   --out build/contract-audit-g27.json
 ck_rc G27_rc_1 G27 1
 ck_has G27_not_canonical G27 err "CONTRACT_NOT_CANONICAL"
+
+echo "== G28. section 22 unified strict parser: three tools, eight real tickets =="
+run G28 python3 ../../tools/test_parse_unified.py
+ck_rc G28_rc_0 G28 0
+ck_has G28_all_ok G28 out "RESULT ALL_OK assertions=114"
+ck_nhas G28_no_traceback G28 err "Traceback"
 
 echo "GATE_RESULT assertions=$CHECKS OK"
 echo OK

@@ -17,5 +17,14 @@
   "fail_stale": false,
   "out": "/work/contract-audit.json",
   "summary": "/work/contract-audit.csv",
-  "note": "paths are placeholders; tool never downloads or embeds Mojang bytes, mappings, contracts or mod binaries"
+  "note": "paths are placeholders; tool never downloads or embeds Mojang bytes, mappings, contracts or mod binaries",
+  "strict_parser": {
+    "regression": "tools/test_parse_unified.py",
+    "tools": [
+      "tools/capability.py",
+      "tools/bridgegen.py",
+      "tools/relocate.py"
+    ],
+    "note": "section 22; all three tools delegate to capability.parse_ref"
+  }
 }
