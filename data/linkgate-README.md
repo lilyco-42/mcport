@@ -1,4 +1,4 @@
-# LinkGate 启动期能力闸门 / 契约数据说明（REPORT §19 / §20 / §21 / §22 / §23 / §24）
+# LinkGate 启动期能力闸门 / 契约数据说明（REPORT §19 / §20 / §21 / §22 / §23 / §24 / §25）
 
 本节只描述数据格式与可分发聚合，**不携带任何 Mojang client jar、官方 ProGuard 映射、
 第三方 mod 二进制或完整契约**。真实契约 `capability-<version>.tsv` 由 `tools/linkgate_contract.py`
@@ -49,6 +49,6 @@ java -javaagent:linkgate.jar \
 聚合由 `tools/linkgate_contract.py --summary` 生成，`source_sha256` 只由 basename+bytes 计算，
 不含调用方绝对路径，可重复生成。
 
-## §21 / §22 / §23 / §24 canonical 审计、统一解析、结构化引用与类级链接兼容性
+## §21 / §22 / §23 / §24 / §25 canonical 审计、统一解析、结构化引用、类级链接与继承层兼容性
 
-`tools/linkgate_contract.py` 生成的是 canonical 契约；旧 `LinkGate` 为向后兼容仍接受双空格、注释行、不足 4 列噪声行等宽松手写契约（即 `demo/gate/contract-*.tsv`）。`tools/contract_audit.py` 反过来要求严格 4 列 TAB、合法 JVMS 描述符、有序唯一键、四行头和合法 `source_sha256`，并逐字节复现工单；因此旧 fixture 被审计器 `CONTRACT_NOT_CANONICAL` 拒绝是设计结果，不代表 `LinkGate` 退化。§21 同时修复 `capability.parse_ref` 的宽松字段描述符切分，避免 `shaderLightDirections[Lorg/joml/Vector3f;` 被拆成永不可能命中常量池的错键；两版聚合计数与 `source_sha256` 不变。审计器路径模板见 `data/contract-audit-spec.example.json`，聚合见 `data/contract-audit-summary.csv`。§22 进一步让 `bridgegen` / `relocate` 委托同一严格 `capability.parse_ref`；契约生成器、审计器与两版 `source_sha256` 均不变，跨工具回归见 `tools/test_parse_unified.py` 与 `data/parse-unified-summary.csv`。§23 新增 `LinkCheck --refs-json` 精确五元组输出与 `tools/refcheck.py` multiset 对账，只对新工单消除源文本歧义；普通 `--json` details 逐字节不变，因此本目录契约、`source_sha256` 与 G25 `regenerated_bytes_match` 不受影响；历史真实工单的 3 / 51 条固有歧义仍按启发式留档，见 `data/refcheck-summary.csv` / `refcheck-README.md`。 §24 新增 `tools/classref.py` 离线类级链接面审计，只读目标 decl、可选 C 改名表与 mod jar 的 `CONSTANT_Class` / 描述符类引用；本目录契约、`source_sha256` 与 G25 `regenerated_bytes_match` 仍不受影响，见 `data/classref-summary.csv` / `classref-README.md`。
+`tools/linkgate_contract.py` 生成的是 canonical 契约；旧 `LinkGate` 为向后兼容仍接受双空格、注释行、不足 4 列噪声行等宽松手写契约（即 `demo/gate/contract-*.tsv`）。`tools/contract_audit.py` 反过来要求严格 4 列 TAB、合法 JVMS 描述符、有序唯一键、四行头和合法 `source_sha256`，并逐字节复现工单；因此旧 fixture 被审计器 `CONTRACT_NOT_CANONICAL` 拒绝是设计结果，不代表 `LinkGate` 退化。§21 同时修复 `capability.parse_ref` 的宽松字段描述符切分，避免 `shaderLightDirections[Lorg/joml/Vector3f;` 被拆成永不可能命中常量池的错键；两版聚合计数与 `source_sha256` 不变。审计器路径模板见 `data/contract-audit-spec.example.json`，聚合见 `data/contract-audit-summary.csv`。§22 进一步让 `bridgegen` / `relocate` 委托同一严格 `capability.parse_ref`；契约生成器、审计器与两版 `source_sha256` 均不变，跨工具回归见 `tools/test_parse_unified.py` 与 `data/parse-unified-summary.csv`。§23 新增 `LinkCheck --refs-json` 精确五元组输出与 `tools/refcheck.py` multiset 对账，只对新工单消除源文本歧义；普通 `--json` details 逐字节不变，因此本目录契约、`source_sha256` 与 G25 `regenerated_bytes_match` 不受影响；历史真实工单的 3 / 51 条固有歧义仍按启发式留档，见 `data/refcheck-summary.csv` / `refcheck-README.md`。 §24 新增 `tools/classref.py` 离线类级链接面审计，只读目标 decl、可选 C 改名表与 mod jar 的 `CONSTANT_Class` / 描述符类引用；本目录契约、`source_sha256` 与 G25 `regenerated_bytes_match` 仍不受影响，见 `data/classref-summary.csv` / `classref-README.md`。 §25 的 `tools/hierarchy.py` 只读加补 decl 继承层视图与 S 行目标对账，不改本节任何契约 / 工单 / 类引用聚合字节；见 `data/hierarchy-summary.csv` / `hierarchy-README.md`。

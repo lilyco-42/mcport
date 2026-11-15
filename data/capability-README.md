@@ -59,3 +59,5 @@ stringsurface / bridgegen `stats.json`；`gate.json` / `map-audit.csv` / `surfac
 7. `claim_policy` 固定为 `static-evidence-only; no runtime claim`；`assert_no_claims` 自检
    禁止 verdict 越界与承诺词，失败直接抛异常。
 * 自包含回归 `tools/test_capability.py` 156 断言，零外部数据；真实实测来源见 REPORT §18.7。
+
+§25 的 `tools/hierarchy.py` 只做离线对账：它如实复现本工具 C-only class surface 与 C/M/F-only digest，并另行计算含 S 行的 hierarchy digest，不修改 `load_decl()`、不改 274B 黄金 / 8 份历史工单 / `source_sha256` / canonical 契约；`HIERARCHY_OK` 不证明运行期兼容。见 `data/hierarchy-README.md`。

@@ -1,4 +1,4 @@
-# 类级链接面审计 / Class-level linkage audit（REPORT §24）
+# 类级链接面审计 / Class-level linkage audit（REPORT §24 / §25）
 
 `data/classref-summary.csv` 是 `tools/classref.py` 三次真实 CLI 实跑的 27 列聚合；每行一个场景，不含 Mojang client jar、官方 ProGuard 映射或第三方 mod 二进制。
 
@@ -27,4 +27,4 @@
 
 `CLASSREFS_OK` 只表示静态类解析面可覆盖，不等于运行期兼容、行为等价或真实客户端启动成功；`CLASSREFS_ONLY_OK` 仅 `--coverage-only` 时 rc=0，仍逐条列出 `MISSING` / `RENAME`；`NEEDS_MANUAL` rc=2；`UNSUPPORTED` rc=1。审计器不新增 JVM 层加载器、不接 `premain`、不重映射、不执行 mod、不覆盖反射 / JSON 字符串类名（§17）与资源运行期取值、不模拟 ClassLoader / Mixin / Fabric、不证明同名同签名语义等价（G15 的 42→6 仍是铁证）。179 SIGCHG + 423 MISSING 人工缺口、真实客户端 / Fabric / LWJGL / Mixin 端到端、§21.4 源文本固有歧义 3 / 51 全部不变。
 
-§21 / §22 / §23 的契约、canonical 复现、统一解析与结构化五元组口径逐字不变：274B 黄金、8 份历史工单、`source_sha256`、G25 `regenerated_bytes_match` 与 G30 `cmp` 均不受影响。见 `data/linkgate-README.md` / `data/contract-audit-README.md` / `data/parse-unified-README.md` / `data/refcheck-README.md`。
+§21 / §22 / §23 的契约、canonical 复现、统一解析与结构化五元组口径逐字不变：274B 黄金、8 份历史工单、`source_sha256`、G25 `regenerated_bytes_match` 与 G30 `cmp` 均不受影响。见 `data/linkgate-README.md` / `data/contract-audit-README.md` / `data/parse-unified-README.md` / `data/refcheck-README.md`。 §25 的 `tools/hierarchy.py` 只读加补 decl 继承层视图与 S 行目标对账，不改本节任何契约 / 工单 / 类引用聚合字节；见 `data/hierarchy-summary.csv` / `hierarchy-README.md`。

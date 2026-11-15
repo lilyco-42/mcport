@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20 / §21 / §22 / §23 / §24).
+# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20 / §21 / §22 / §23 / §24 / §25).
 # 所有产物在 demo/gate/build/（gitignore），不触碰 demo/*.jar tracked 二进制。
 # 固定 jar --date，保证两次运行产物字节一致；mod jar 在所有场景前后 sha1 不变。
 set -e
@@ -460,6 +460,84 @@ run G36_version python3 ../../tools/classref.py --decl build/classref/decl-ok.ts
   --modjar "$CLASSMOD" --game-prefix net/mc/ --version '1.20 1' \
   --out build/classref/bad-version.json
 ck_rc G36_version_rc_1 G36_version 1
+
+
+echo "== G37. section 25 decl hierarchy reconciliation regression (390 self-contained assertions) =="
+run G37_unit python3 ../../tools/test_hierarchy.py
+ck_rc G37_unit_rc_0 G37_unit 0
+ck_has G37_unit_all_ok G37_unit out "RESULT ALL_OK assertions=390"
+ck_nhas G37_unit_no_traceback G37_unit err "Traceback"
+
+echo "== G38. a decl with aligned capability/LinkCheck/classref views is HIERARCHY_OK =="
+mkdir -p build/hierarchy
+printf 'C\tnet/minecraft/A\n' > build/hierarchy/decl-good.tsv
+printf 'C\tnet/minecraft/B\n' >> build/hierarchy/decl-good.tsv
+printf 'S\tnet/minecraft/A\tjava/lang/Object\t\n' >> build/hierarchy/decl-good.tsv
+printf 'S\tnet/minecraft/B\tnet/minecraft/A\t\n' >> build/hierarchy/decl-good.tsv
+printf 'M\tnet/minecraft/A\tcall\t()V\n' >> build/hierarchy/decl-good.tsv
+printf 'F\tnet/minecraft/B\tvalue\tI\n' >> build/hierarchy/decl-good.tsv
+HIER_OK_SHA="$(sha256sum build/hierarchy/decl-good.tsv | cut -d' ' -f1)"
+run G38_ok python3 ../../tools/hierarchy.py --decl build/hierarchy/decl-good.tsv \
+  --decl-sha256 "$HIER_OK_SHA" --version 1.20.1 \
+  --out build/hierarchy/ok.json --summary build/hierarchy/ok.csv
+ck_rc G38_ok_rc_0 G38_ok 0
+ck_has G38_ok_verdict G38_ok out "verdict=HIERARCHY_OK"
+ck_has G38_ok_disclaimer G38_ok out "does NOT mean runtime-compatible"
+ck G38_ok_digest has build/hierarchy/ok.json '"decl_digest_ok": true'
+ck G38_ok_spec has build/hierarchy/ok.json 'JVMS 5.4.3.1 / 5.4.3.3 / 5.4.3.4'
+
+echo "== G39. different S rows with the same capability digest fail loud =="
+printf 'C\tnet/minecraft/A\n' > build/hierarchy/collide-a.tsv
+printf 'M\tnet/minecraft/A\tcall\t()V\n' >> build/hierarchy/collide-a.tsv
+printf 'S\tnet/minecraft/A\tjava/lang/Object\t\n' >> build/hierarchy/collide-a.tsv
+cp build/hierarchy/collide-a.tsv build/hierarchy/collide-b.tsv
+sed -i 's|java/lang/Object|javax/lang/Object|' build/hierarchy/collide-b.tsv
+run G39_collision python3 ../../tools/hierarchy.py --decl build/hierarchy/collide-a.tsv \
+  --compare-decl build/hierarchy/collide-b.tsv --out build/hierarchy/collision.json
+ck_rc G39_collision_rc_2 G39_collision 2
+ck_has G39_collision_verdict G39_collision out "verdict=NEEDS_MANUAL"
+ck_has G39_collision_reason G39_collision err "HIERARCHY_DIGEST_COLLISION"
+ck G39_collision_flag has build/hierarchy/collision.json '"capability_digest_collision": true'
+ck G39_collision_digest has build/hierarchy/collision.json '"compare_hierarchy_digest":'
+
+echo "== G40. the 0.2.4 F-only golden decl proves a real cross-tool class-surface gap =="
+run G40_gap python3 ../../tools/hierarchy.py --decl refcheck-decl.tsv \
+  --out build/hierarchy/gap.json --summary build/hierarchy/gap.csv
+ck_rc G40_gap_rc_2 G40_gap 2
+ck_has G40_gap_divergent G40_gap out "divergent=1"
+ck_has G40_gap_reason G40_gap err "CAPABILITY_DECL_REJECTED"
+ck G40_gap_json has build/hierarchy/gap.json '"net/minecraft/Api"'
+ck G40_gap_view has build/hierarchy/gap.json '"ok": false'
+
+echo "== G41. duplicate S rows, hierarchy cycles and bad prefixes are UNSUPPORTED =="
+printf 'C\tnet/minecraft/A\nC\tnet/minecraft/B\n' > build/hierarchy/duplicate.tsv
+printf 'S\tnet/minecraft/A\tjava/lang/Object\t\n' >> build/hierarchy/duplicate.tsv
+printf 'S\tnet/minecraft/A\tnet/minecraft/B\t\n' >> build/hierarchy/duplicate.tsv
+printf 'C\tnet/minecraft/A\nC\tnet/minecraft/B\n' > build/hierarchy/cycle.tsv
+printf 'S\tnet/minecraft/A\tnet/minecraft/B\t\n' >> build/hierarchy/cycle.tsv
+printf 'S\tnet/minecraft/B\tnet/minecraft/A\t\n' >> build/hierarchy/cycle.tsv
+run G41_duplicate python3 ../../tools/hierarchy.py --decl build/hierarchy/duplicate.tsv --out build/hierarchy/duplicate.json
+ck_rc G41_duplicate_rc_1 G41_duplicate 1
+ck_has G41_duplicate_reason G41_duplicate err "DUPLICATE_S_ROWS"
+run G41_cycle python3 ../../tools/hierarchy.py --decl build/hierarchy/cycle.tsv --out build/hierarchy/cycle.json
+ck_rc G41_cycle_rc_1 G41_cycle 1
+ck_has G41_cycle_reason G41_cycle err "HIERARCHY_CYCLE"
+run G41_prefix python3 ../../tools/hierarchy.py --decl build/hierarchy/decl-good.tsv --game-prefix 'net.minecraft/' --out build/hierarchy/bad-prefix.json
+ck_rc G41_prefix_rc_1 G41_prefix 1
+ck_has G41_prefix_reason G41_prefix err "BAD_GAME_PREFIX"
+
+echo "== G42. a third-party namespace is never silently accepted as stable =="
+printf 'C\tnet/minecraft/A\n' > build/hierarchy/third.tsv
+printf 'S\tnet/minecraft/A\tcom/example/Lib\t\n' >> build/hierarchy/third.tsv
+run G42_third_plain python3 ../../tools/hierarchy.py --decl build/hierarchy/third.tsv --out build/hierarchy/third-plain.json
+ck_rc G42_third_plain_rc_1 G42_third_plain 1
+ck_has G42_third_unclassified G42_third_plain err "UNCLASSIFIED_REFS"
+run G42_third_waived python3 ../../tools/hierarchy.py --decl build/hierarchy/third.tsv --allow-third-party --out build/hierarchy/third-waived.json
+ck_rc G42_third_waived_rc_2 G42_third_waived 2
+ck_has G42_third_waived_reason G42_third_waived err "THIRD_PARTY_WAIVED"
+run G42_third_only python3 ../../tools/hierarchy.py --decl build/hierarchy/third.tsv --allow-third-party --coverage-only --out build/hierarchy/third-only.json
+ck_rc G42_third_only_rc_0 G42_third_only 0
+ck_has G42_third_only_verdict G42_third_only out "verdict=HIERARCHY_ONLY_OK"
 
 echo "GATE_RESULT assertions=$CHECKS OK"
 echo OK

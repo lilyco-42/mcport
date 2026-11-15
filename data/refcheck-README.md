@@ -1,4 +1,4 @@
-# 结构化引用对账 / Structured refs reconciliation（REPORT §23 / §24）
+# 结构化引用对账 / Structured refs reconciliation（REPORT §23 / §24 / §25）
 
 0.2.4 不再只靠 `LinkCheck.toString()` 的 `owner + "." + name + desc` 无分隔符文本猜 `(name,desc)`。
 `java/mcport/LinkCheck.java` 新增 `--refs-json <path>`，在 `classify()` 阶段直接把常量池里读到的
@@ -32,4 +32,4 @@
 不证明同名同签名语义等价（demo G15 的 42→6 仍是铁证）。179 SIGCHG + 423 MISSING 人工缺口、
 真实客户端 / Fabric / LWJGL / Mixin 端到端、反射 / 配置 / 资源字符串运行期取值均不变。
 
-§24 用同一 274B 黄金 jar 证明成员级 `resolve=2 / missing=0` 时类级仍可能 `MISSING`；本目录结构化五元组与历史歧义口径不变，见 `data/classref-summary.csv` / `classref-README.md`。
+§24 用同一 274B 黄金 jar 证明成员级 `resolve=2 / missing=0` 时类级仍可能 `MISSING`；本目录结构化五元组与历史歧义口径不变，见 `data/classref-summary.csv` / `classref-README.md`。 §25 的 `tools/hierarchy.py` 只读加补 decl 继承层视图与 S 行目标对账，不改本节任何契约 / 工单 / 类引用聚合字节；见 `data/hierarchy-summary.csv` / `hierarchy-README.md`。

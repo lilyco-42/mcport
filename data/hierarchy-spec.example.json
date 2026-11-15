@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "version": "0.2.6",
+  "tool": "mcport.hierarchy",
+  "decl": "<path>/decl.tsv",
+  "decl_sha256": "<64 lowercase hex>",
+  "compare_decl": "<path>/decl-b.tsv",
+  "map": "<path>/map.tsv",
+  "game_prefixes": [
+    "net/minecraft/"
+  ],
+  "allow_third_party": false,
+  "coverage_only": false,
+  "out": "<path>/hierarchy.json",
+  "summary": "<path>/hierarchy.csv",
+  "regression": "tools/test_hierarchy.py",
+  "gate_scenarios": [
+    "G37",
+    "G38",
+    "G39",
+    "G40",
+    "G41",
+    "G42"
+  ],
+  "note": "section 25 decl inheritance reconciliation; paths are placeholders; no game jar, Mojang mapping or mod binary is embedded"
+}

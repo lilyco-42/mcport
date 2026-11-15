@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "0.2.5",
+  "version": "0.2.6",
   "refs_json": "/work/refs.json",
   "ticket": "/work/legacy.json",
   "golden": "data/refcheck-legacy-golden.json",
@@ -33,5 +33,29 @@
       "G36"
     ],
     "note": "section 24 class-level linkage audit; paths are placeholders"
+  },
+  "hierarchy": {
+    "decl": "/work/decl.tsv",
+    "decl_sha256": "64-lowercase-hex-or-empty",
+    "compare_decl": "/work/decl-b.tsv",
+    "map": "/work/map.tsv",
+    "version": "1.20.1",
+    "game_prefixes": [
+      "net/mc/"
+    ],
+    "allow_third_party": false,
+    "coverage_only": false,
+    "out": "/work/hierarchy.json",
+    "summary": "/work/hierarchy.csv",
+    "regression": "tools/test_hierarchy.py",
+    "gate_scenarios": [
+      "G37",
+      "G38",
+      "G39",
+      "G40",
+      "G41",
+      "G42"
+    ],
+    "note": "section 25 decl inheritance reconciliation; paths are placeholders"
   }
 }

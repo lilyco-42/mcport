@@ -1754,6 +1754,42 @@ LinkGate 把「静态预言」推进到「启动期零修改拒绝」，但不�
 
 179 SIGCHG + 423 MISSING 人工缺口、真实客户端 / Fabric / LWJGL / Mixin 端到端、§21.4 源文本固有歧义 3 / 51、静态不可判的语义漂移全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
 
+## 25. decl 继承层跨工具对账（McPort 0.2.6）
+
+### 25.1 根因：三套 decl 视图与不含 S 行的能力摘要
+
+`tools/capability.py:98` 的 `load_decl()` 只把 C 行 owner 加进 `d.classes`，`S` 行仅写入 `d.supers` / `d.ifaces`，`M` / `F` 行只写成员集合；:121 的 `d.digest` 更是只哈希排序后的 C / M / F 行，**S 行完全不进摘要**，且无 C 行时抛 `InputError("decl has no C rows: ...")`。相反，`java/mcport/LinkCheck.java:297` 的 `loadDecl()` 会把 C / S / M / F 全部 owner 加进 `CLASSES`，`tools/classref.py:282` 的 `parse_decl()` 也把所有 C / S / M / F owner 视为目标类。于是同一份 decl 在 `capability` 与 `LinkCheck` / `classref` 眼里可以有不同的类解析面；F-only 的 §23 黄金 fixture 在前者直接报错、在后两者却合法。
+
+JVMS §5.4.3.3 / §5.4.3.4 的方法解析会沿父类与 superinterface 递归查找；若显式 `S` 行的游戏父类 / 接口目标已从目标 decl 删除、改名，或 S 行互相覆盖、构成环、第三方命名空间未获授权，旧流水线没有任何统一证据面，可能把「继承链目标不存在」静默当成可解析。两份只差 S 行的 decl 还能拥有同一个 `capability_digest`，使 §18 的能力契约摘要无法区分继承拓扑。
+
+### 25.2 独立离线对账器
+
+`tools/hierarchy.py` 是纯标准库离线工具，零新依赖、**不改** `capability.py` / `LinkCheck.java` / `classref.py` / 274B 黄金工单 / 8 份历史工单 / `source_sha256` / canonical 契约 / G25 `regenerated_bytes_match` / G30 `cmp` / javac 32 / 1065 条旧断言 / 180 条旧闸门断言。它一次性解析 C(2) / S(2,3,4) / M|F(4 严格 JVMS 描述符) 行，分别重建 `capability` 的 C-only class surface 与 C/M/F-only digest、Java `LinkCheck` 与 `classref` 的 C/S/M/F 全 owner surface，并实际调用 `CAP.load_decl()` / `CR.parse_decl()` 做第三方式交叉验证（Java 不执行）。
+
+它逐条列出 `S` 行的 `super` / `iface` 目标并按 `RESOLVE` / `RENAME` / `MISSING` / `EXTERNAL` / `THIRD_PARTY` 分类；目标在 decl 为 `RESOLVE`，命中可选精确 C 改名表且新目标在 decl 为 `RENAME`，游戏前缀下目标缺失为 `MISSING`，JDK / Mojang 独立库为 `EXTERNAL`，其余为 `THIRD_PARTY`。`--allow-third-party` 只写 `THIRD_PARTY_WAIVED` 且仍 `NEEDS_MANUAL`（除非显式 `--coverage-only`），绝不静默 PASS。`--decl-sha256` 绑定 decl 字节，`--compare-decl` 复算第二份 decl 的 capability / hierarchy 摘要以暴露 `HIERARCHY_DIGEST_COLLISION`；重复 / 冲突 S 行、`HIERARCHY_CYCLE`、坏版本 / 坏摘要 / 坏 game prefix / 映射表 IO 均 `UNSUPPORTED` rc=1。`HIERARCHY_OK` rc=0、`HIERARCHY_ONLY_OK` rc=0、`NEEDS_MANUAL` rc=2、`UNSUPPORTED` rc=1，成功 stdout 强制附 `does NOT mean runtime-compatible; hierarchy coverage does NOT prove semantic equivalence`，JSON 与 36 列 CSV 均确定性输出，失败也落报告。`LINKAGE_SPEC` 明写 `JVMS 5.4.3.1 / 5.4.3.3 / 5.4.3.4`，`CLAIM_POLICY` 为 `static-hierarchy-only; no runtime claim`。
+
+### 25.3 实测证据
+
+| 证据 | 结果 |
+| --- | --- |
+| `tools/test_hierarchy.py` | 390 条自包含断言；只读 8 份聚合工单、274B 黄金、§23 decl 与 5 个 tracked demo jar，其余 decl / map / 坏 UTF-8 fixture 全在 tempfile 合成 |
+| `demo/gate/run.sh` G37–G42 | 保留原 G1–G36 180 断言，新增 30 条 → **42 场景 210 断言** |
+| G38 正常继承链 | `HIERARCHY_OK` rc=0，rows=6 / c_classes=2 / s_rows=2 / edges=2 / resolve=1 / external=1，decl 摘要绑定通过 |
+| G39 摘要碰撞 | 两份 C/M/F 相同、S 目标不同的 decl 得到同一 `capability_digest` 与不同 `hierarchy_digest`，`capability_digest_collision=1`、`NEEDS_MANUAL` rc=2 |
+| G40 F-only 黄金 decl | `demo/gate/refcheck-decl.tsv`（只有两行 F）在 capability 视图报 `decl has no C rows`，LinkCheck/classref 视图都含 `net/minecraft/Api`，`divergent=1`、`NEEDS_MANUAL` rc=2 |
+| G41 结构错误 | 冲突 S 行 `DUPLICATE_S_ROWS`、环 `HIERARCHY_CYCLE`、坏 `net.minecraft/` 前缀 `BAD_GAME_PREFIX` 全 rc=1 |
+| G42 第三方豁免 | 默认 `UNCLASSIFIED_REFS` rc=1；`--allow-third-party` 写 `THIRD_PARTY_WAIVED` 且 rc=2；再加 `--coverage-only` 才 `HIERARCHY_ONLY_OK` rc=0 |
+| 三次真实 CLI | `data/hierarchy-summary.csv` 的 36 列三行分别来自 `/tmp/lead-r13-data/s1.csv` / `s2.csv` / `s3.csv`，不是手写数字 |
+| 全量回归 | javac 32；11 套 Python 回归 1455 断言（49/27/61/78/158/27/110/114/216/225/390）；`demo/run.sh` 两遍 5 个 tracked jar 可复现；gate 两遍 **42 场景 210 断言**；`real26` 干净 SKIP；`git diff --check` |
+
+`data/hierarchy-summary.csv` / `hierarchy-README.md` / `hierarchy-spec.example.json` 只含聚合数字、口径与路径占位符；合成 decl / map 与临时 JSON / CSV 不分发。
+
+### 25.4 结论与残余
+
+0.2.6 把「decl 继承层是否被三工具一致解释、显式父类 / 接口目标是否仍存在、能力摘要是否遮蔽 S 行差异」从静默假设变成可复核的离线 fail-loud 证据面，并用 F-only 黄金 decl 与两份摘要碰撞证明旧口径确实有分歧。它**不接入** `premain`、**不新增 JVM 层加载器**、不重映射 mod 字节、不扩大 `LinkGate` 的 `PASS` 集合、不执行游戏，也不覆盖无 S 行时隐含的 `java/lang/Object`、反射 / JSON 字符串类名（§17）、运行期 ClassLoader / Mixin / Fabric 行为、成员解析本身（§19–§24）与同名同签名语义漂移（G15 的 42→6 仍是铁证）。`HIERARCHY_OK` 与 `HIERARCHY_ONLY_OK` 都不证明能跑或语义等价。
+
+179 SIGCHG + 423 MISSING 人工缺口、真实客户端 / Fabric / LWJGL / Mixin 端到端、§21.4 源文本固有歧义 3 / 51、静态不可判的语义漂移全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -1786,4 +1822,5 @@ mod jar、2 张目标声明表、2 张映射表上的 audit / rewrite 实跑、4
 §21 来自 `tools/capability.py` 的严格 JVMS §4.3 `parse_ref` 修复、`tools/contract_audit.py` / `tools/test_contract_audit.py` 与 `demo/gate/run.sh` G25–G27 在两版 8 份真实 LinkCheck 工单、两份 canonical 契约、一个合成 stub jar 上的实跑（2026-11-16；0 坏描述符、契约字节 74091 / 97115、110 条自包含断言、27 场景 133 断言；输入字节与完整契约不分发，聚合数字见 `data/contract-audit-summary.csv`）。
 §22 来自 `tools/bridgegen.py` / `tools/relocate.py` 委托 `tools/capability.py` 严格 `parse_ref` 的源码改动、`tools/test_parse_unified.py` 与 `demo/gate/run.sh` G28 在两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；每版 1190 行、197 / 1 → 0、零 None、114 条自包含断言、28 场景 136 断言；完整工单外的输入字节不分发，聚合数字见 `data/parse-unified-summary.csv`）。
 §23 来自 `java/mcport/LinkCheck.java` 的 `--refs-json` 结构化输出、`tools/refcheck.py` / `tools/test_refcheck.py` 与 `demo/gate/run.sh` G29–G31 在合成碰撞 fixture、274B 旧 `--json` 黄金字节、含引号 / 反斜杠路径及两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；structured=2 / legacy=2 / ambiguous=2 / resolved=1 / diverged=1、216 条自包含断言、31 场景 158 断言、历史源文本固有歧义 3 / 51 仍留档；合成 jar 与临时报告不分发，聚合数字见 `data/refcheck-summary.csv`）。
-§24 来自 `tools/classref.py` / `tools/test_classref.py` 与 `demo/gate/run.sh` G32–G36 在 3 次真实 CLI、274B 黄金 jar、5 个 tracked demo jar 与两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；CONSTANT_Class / 描述符类引用、225 条自包含断言、36 场景 180 断言、G34 证明成员 PASS 而类 MISSING；合成 decl / map 与临时报告不分发，聚合数字见 `data/classref-summary.csv`）。*
+§24 来自 `tools/classref.py` / `tools/test_classref.py` 与 `demo/gate/run.sh` G32–G36 在 3 次真实 CLI、274B 黄金 jar、5 个 tracked demo jar 与两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；CONSTANT_Class / 描述符类引用、225 条自包含断言、36 场景 180 断言、G34 证明成员 PASS 而类 MISSING；合成 decl / map 与临时报告不分发，聚合数字见 `data/classref-summary.csv`）。
+§25 来自 `tools/hierarchy.py` / `tools/test_hierarchy.py` 与 `demo/gate/run.sh` G37–G42 在 3 次真实 CLI、两份摘要碰撞 decl、F-only 黄金 decl、8 份真实 LinkCheck 工单与 5 个 tracked demo jar 上的实跑（2026-11-16；C/S/M/F owner 视图差异、capability 摘要碰撞、390 条自包含断言、42 场景 210 断言；合成 decl / map 与临时报告不分发，聚合数字见 `data/hierarchy-summary.csv`）。*
