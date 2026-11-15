@@ -1,0 +1,3 @@
+net/mc/World  getBlock  (III)I  missing
+# 下一行不足 4 列，必须被忽略而不是让闸门崩
+net/mc/World  getBlock

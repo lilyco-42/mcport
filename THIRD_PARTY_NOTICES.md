@@ -73,6 +73,8 @@ https://asm.ow2.io/ ，许可原文 https://asm.ow2.io/license.html ：
   `data/capability-README.md` 仅含聚合数字与口径，`data/capability-spec.example.json`
   仅路径占位符。
 
+* **启动期闸门 §19 的输入与产物**：`java/mcport/LinkGate.java` 只读调用方自备的 mod jar 与 contract TSV，不下载、不复制、不内嵌 Mojang 类字节或第三方 mod 字节码；`demo/gate/run.sh` 里 `build/stubapi/` 的 `GlStateManager.java` 只是按签名手写的合成编译占位（注释明确 NOT Mojang code or bytes），不源自也不包含 Mojang 源码或类字节。`tools/linkgate_contract.py` 只读仓库内已有的 LinkCheck 工单 JSON 测量结果（计数与符号名）生成契约；完整契约、合成 stub 与任何 mod jar 都只写 `--out-dir` / `demo/gate/build/`，不进仓库与发布包。`data/linkgate-summary.csv` / `linkgate-README.md` / `linkgate-spec.example.json` 只含聚合数字、口径与路径占位符。
+
 * **热门 Fabric mod 二进制**（Sodium / Iris / ImmediatelyFast / YACL /
   Xaero's Minimap / fabric-language-kotlin 等）：仅在本机 `/tmp` 下用于
   静态链接测量，**未复制进本仓库、未上传到任何下载通道**。其许可包含

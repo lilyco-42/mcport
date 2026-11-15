@@ -50,6 +50,9 @@ bash demo/run.sh
 | `tools/test_stringsurface.py` | 零外部数据的 78 断言自包含回归 | `python3 tools/test_stringsurface.py` |
 | `tools/capability.py` | 四版能力契约 + 严格 map 双向自证 + 26.x bridge 审计 + 三档 fail-loud 出货闸门 | `python3 tools/capability.py --spec spec.json --out-dir gate/` |
 | `tools/test_capability.py` | 零外部数据的 156 断言自包含回归 | `python3 tools/test_capability.py` |
+| `java/mcport/LinkGate.java` | 启动期 JVM 常量池闸门：真实契约扫 mod，MISSING/SIGCHG 拒启动，零字节修改 | `java -javaagent:linkgate.jar -Dmcport.gate=... -Dmcport.gate.modjar=... Main` |
+| `tools/linkgate_contract.py` | 从 LinkCheck 工单生成确定性启动期契约 + 聚合统计，冲突即拒 | `python3 tools/linkgate_contract.py --ticket "data/hotmods/26.1__*.json" --version 26.1 --out gate.tsv --summary s.csv` |
+| `tools/test_linkgate_contract.py` | 零外部数据 27 断言 + 可选真实工单聚合的契约回归 | `python3 tools/test_linkgate_contract.py` |
 
 HostBridge 规则表每行 6 列（TAB 分隔）：`owner / oldName / oldDesc / virtual或static / adapterClass / adapterMethod`。
 适配器描述符由工具自动推导，人只写普通 Java 语义适配方法；`<init>`/`<clinit>`、重复签名、空表一律 fail-loud。
@@ -242,6 +245,17 @@ python3 tools/capability.py --spec /work/spec.json --out-dir /work/gate
 `data/capability-README.md`，路径模板见 `data/capability-spec.example.json`。
 详见 REPORT §18.6 / §18.9。
 
+## 启动期能力闸门（REPORT §19）
+
+`LinkGate` 是不改 mod 字节的 `-javaagent`：在 `premain` 用纯 JDK 两遍解析 class 常量池，对照由 `tools/linkgate_contract.py` 从真实 LinkCheck 工单生成的契约，把 `MISSING` / `SIGCHG` 引用在启动前干净拒绝（rc=2、无 native abort）；`RENAME` 只计数，未知引用默认 `RESOLVE`，`warn` 只豁免已知 blocker 不豁免读表失败。两版真实工单各 4 份 / 1190 原始引用 / 1019 唯一引用；26.1 有 68 SIGCHG + 223 MISSING 会阻断。
+
+```bash
+bash demo/gate/run.sh                          # 18 场景 81 断言，含真实契约 JVM 阻断与 42→6 语义漂移铁证
+python3 tools/test_linkgate_contract.py        # 27 断言 + 可选真实工单聚合回归
+```
+
+聚合见 `data/linkgate-summary.csv`，口径见 `data/linkgate-README.md`，路径模板见 `data/linkgate-spec.example.json`。**`PASS` 只表示链接符号未被闸门判定为坏，不证明能跑或语义一致。**
+
 
 ## 构建
 
@@ -254,6 +268,7 @@ python3 tools/test_relocate.py                          # §15 严格迁移 27 �
 python3 tools/test_bridgegen.py                         # §16 人工桥工作台 61 断言回归
 python3 tools/test_stringsurface.py                     # §17 字符串表面 78 断言回归
 python3 tools/test_capability.py                        # §18 出货闸门 156 断言回归
+python3 tools/test_linkgate_contract.py                 # §19 启动期契约 27 断言回归
 ```
 
 > **CI 注意**：若 `LANG`/`LC_ALL` 为空，JDK 用 `ANSI_X3.4-1968` 解码路径，中文目录会让 `javac`

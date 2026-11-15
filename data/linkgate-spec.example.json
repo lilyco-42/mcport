@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "version": "26.1",
+  "tickets": [
+    "data/hotmods/26.1__*.json"
+  ],
+  "out": "/work/capability-26.1.tsv",
+  "summary": "/work/linkgate-summary.csv",
+  "runtime": {
+    "agent": "/work/linkgate.jar",
+    "modjar": "/work/mod.jar",
+    "policy": "reject"
+  },
+  "note": "paths are placeholders; tool never downloads or embeds Mojang bytes or mod binaries"
+}

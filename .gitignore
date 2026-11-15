@@ -1,5 +1,6 @@
 build/
 demo/build/
+demo/gate/build/
 *.class
 .DS_Store
 __pycache__/

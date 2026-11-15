@@ -1481,6 +1481,79 @@ python3 tools/capability.py --spec /work/spec.json --out-dir /work/gate --emit-c
 
 0.1.9 **没有新增 JVM 层加载器，也没有扩大「能跑」集合**：它把 0.1.0–0.1.8 的静态证据合成可审计的三档出货判定，只有「严格 map + 符号复测齐全 + 零人工缺口 + 零 unresolved / 未审候选」才允许 `READY`。四版真实实测里仅 clean 场景 7/7 READY，full 场景因 28 条 UNSUPPORTED / 12 条 NEEDS_MANUAL 被拒。残余不变：179 SIGCHG + 423 MISSING 需人工、真实客户端 / Fabric / LWJGL / Mixin 端到端未证、同名同签名语义漂移静态不可判定、Bedrock 非 JVM 平台不在射程。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付是「分段适配 + 逐版本能力契约 + fail-loud 闸门」，不是万能加载器。
 
+
+## 19. 启动期能力闸门（寄生 JVM 常量池解析，McPort 0.2.0）
+
+### 19.1 为什么还要一层：静态出货闸门与运行期链接之间的缝
+
+§18 的 `capability.py` 是**作者/CI 侧**：打包前把 map / bridge / plan / 工单 / 字符串表面合成 `READY` / `NEEDS_MANUAL` / `UNSUPPORTED`。但玩家把某个 mod 装进某个目标版本前，还需要一道**不修改 mod 任何字节**、在 JVM 真正解析符号之前就能拒绝启动的闸门。§19 用 `-javaagent` 寄生 JVM 启动期：只读 class 文件常量池（JVMS §4.4 的格式契约），对照明示 contract 把已知会崩的引用拦在 `premain`。它不注册 `ClassFileTransformer`，因此没有“改字节码”或“重新定义类”的风险。
+
+### 19.2 失败语义：实测 HotSpot 后的铁律
+
+本机 HotSpot 17.0.21 用最小 agent 实测（`/tmp/linkgate-probe/{throwT,exit2,throwP,errT}/`）：
+
+* 在 `ClassFileTransformer.transform` 里抛 `IllegalStateException` 或 `LinkageError` → JVM **静默吞掉**，主类照常打印 `MAIN_OK`、进程 rc=0；不能靠 transform 抛异常拒绝启动。
+* `premain` 打印拒绝信息后 `System.exit(2)` → 业务 stdout 为空、rc=2，是干净拒绝。
+* `premain` 抛异常逃逸 → rc=134、`FATAL ERROR in native method: processing of -javaagent failed` 与 `ASSERTION FAILED ... invokeJavaAgentMainMethod`，core dumped。
+
+所以 LinkGate 三条硬规则：① **绝不在 transform 里抛异常**（它根本没有 transform）；② 所有 IOException / 解析失败都 catch 后 `FAIL` + `System.exit(2)`；③ `policy=warn` 只豁免「已经扫描成功且仅发现已知 blocker」的情况，参数缺失与读表失败不豁免。
+
+### 19.3 契约格式与判定规则
+
+`demo/gate/contract-*.tsv` 是手写最小样例；真实契约由 `tools/linkgate_contract.py` 从调用方自备的 §8 LinkCheck 工单聚合生成：
+
+```text
+# mcport-linkgate-contract schema=1 version=<target>
+# source_tickets=<N> source_sha256=<sha256-of-basename+bytes>
+# UNKNOWN refs default to RESOLVE; READY/RESOLVE does NOT mean runtime-compatible.
+# owner<TAB>name<TAB>desc<TAB>status
+owner<TAB>name<TAB>desc<TAB>RESOLVE|RENAME|SIGCHG|MISSING
+```
+
+* `owner/name/desc` 与 `CONSTANT_Class` / `NameAndType` 解码出的内部形式逐字一致（`/` 分隔、JVM 描述符）；一行 4 列 TAB，注释与空行忽略，状态大小写不敏感。
+* `MISSING` / `SIGCHG` → 硬阻断；`RENAME` → 只计数（可由 McPortRuntime 机械改名）；`RESOLVE` 或契约里没有 → 通过。**未知不赌**：闸门只拦显式已知坏，绝不把缺证据误判成坏。
+* 同一 `(owner,name,desc)` 工单间状态冲突 → 生成器 `ContractError`、exit 2，不写半成品；外部库 `EXTERNAL` 桶忽略。
+* `source_sha256` 用 basename + 文件字节计算，不含调用方绝对路径；同一输入两次生成字节一致。
+
+### 19.4 纯 JDK 常量池扫描实现
+
+`java/mcport/LinkGate.java` 不依赖 ASM 或任何第三方库：读 jar 内每个 `.class`，检验 `0xCAFEBABE` 后两遍解析常量池。第一遍记录每个 cp 项的 tag 与原始索引；第二遍把 `CONSTANT_Fieldref/Methodref/InterfaceMethodref` 的 `class_index` / `name_and_type_index` 解成 `owner|name|desc`。两遍是必需的：Class / NameAndType 允许前向引用 Utf8；一遍解析会漏掉后续 Utf8。
+
+实现覆盖 tag 1/3/4/5/6/7/8/9/10/11/12/15/16/17/18/19/20；`Long` / `Double` 占两个 cp 槽，必须 `readLong(); i++`；`CONSTANT_Utf8` 是 modified UTF-8，借 `DataInputStream.readUTF()` 精确解码（含内嵌 NUL），不能 `new String(bytes, UTF_8)`。未知 tag → `FAIL` + exit 2，不猜测。引用集合用 `TreeSet` 保证输出顺序确定。
+
+### 19.5 运行参数与退出语义
+
+```bash
+java -javaagent:linkgate.jar \
+  -Dmcport.gate=/work/capability-26.1.tsv \
+  -Dmcport.gate.modjar=/work/mod.jar \
+  -Dmcport.gate.policy=reject|warn \
+  -cp /work/mod.jar:/work/api.jar Main
+```
+
+* `reject`（默认，未知值 fail-closed 同 reject）：有 blocker → stderr 逐条 `BLOCKER` + `REJECT`，业务 stdout 为空，rc=2；无 blocker → `PASS` 后照常启动。
+* `warn`：已扫描成功后发现已知 blocker → `WARN: <n>` + `PASS` 后照常启动；参数缺失 / 文件不可读 / 解析失败仍 `FAIL` + rc=2。
+* `-javaagent:linkgate.jar=<contract>` 可替代 `-Dmcport.gate`；`-Dmcport.gate.modjar` 仍必填。
+
+### 19.6 真实工单接入：两版聚合与实际阻断
+
+`tools/linkgate_contract.py` 在仓库自带的 8 份 LinkCheck 工单上实跑（只读测量产物，不含 mod 字节码）：
+
+| 目标版本 | 工单 | 原始引用 | EXTERNAL 忽略 | 唯一引用 | 重复 | RESOLVE | RENAME | SIGCHG | MISSING | source_sha256 前缀 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1.21.11 | 4 | 1190 | 28 | 1019 | 143 | 742 | 0 | 86 | 191 | `753a1d5e` |
+| 26.1 | 4 | 1190 | 28 | 1019 | 143 | 728 | 0 | 68 | 223 | `53e65459` |
+
+聚合见 `data/linkgate-summary.csv`，口径见 `data/linkgate-README.md`，路径模板见 `data/linkgate-spec.example.json`。完整契约含真实符号名与 291/277 条 blocker，不进仓库与发布包；只留最小合成 `demo/gate/contract-*.tsv`。G16 在 JVM 内用真实 26.1 契约扫一个**合成 stub jar**（源码只有签名占位，不含 Mojang 字节），精确命中 `com/mojang/blaze3d/platform/GlStateManager|_activeTexture|(I)V -> MISSING`，`premain` 干净拒绝 rc=2，stub jar 前后 sha256 不变。
+
+### 19.7 18 场景 81 断言的端到端铁证
+
+`bash demo/gate/run.sh` 覆盖 G1–G18：无闸门基线、RESOLVE/MISSING/SIGCHG/RENAME、缺参数、文件不存在、小写状态+噪声行、未知 policy、agent 参数形式、Long/Double 双槽 + modified UTF-8 NUL、语义漂移铁证、真实工单→契约→JVM 阻断、真实契约扫 demo 的未知引用默认 RESOLVE、warn 只豁免已知 blocker、配置/IO 失败在 warn 下仍拒绝。全部通过：`GATE_RESULT assertions=81 OK`。所有产物在 `demo/gate/build/`，不触碰 5 个 tracked demo jar；stub API 只是合成签名编译占位，不含 Mojang 类字节。
+
+### 19.8 结论与残余
+
+LinkGate 把「静态预言」推进到「启动期零修改拒绝」，但不扩大「能跑」集合：① 它只扫描 **class 常量池里的成员引用**，看不到反射 / 配置 / 资源字符串（§17 有独立审计）；② `RESOLVE` 不证明语义等价，G15 实测同名同签名 42→6 仍 PASS；③ 契约质量完全依赖上游工单，工单错则闸门错（fail-loud 只保证不被静默洗白）；④ 未覆盖真实客户端 / Fabric / LWJGL / Mixin 端到端；⑤ 它不修任何东西，只是干净拒绝或放行。因此「全平台全版本任意 mod 都能跑」仍不可达；§19 的等效交付是**把已知的坏挡在启动前**，把无法证明的好标成未知并继续 fail-loud。
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -1503,6 +1576,7 @@ LinkCheck 工单、两张真实目标声明表上的生成 + RemapTool + 无 `--
 §16 来自 `java/mcport/CallKind.java` / `tools/bridgegen.py` / `tools/test_bridgegen.py` 在 §15 复测后的
 8 份真实工单、2 份目标声明表、8 个已重映射 mod jar 上的实跑与 61 条自包含断言（2026-11-15；602 条引用、
 4 条唯一人工候选、`auto_fixed=0`；输入字节、callkind/triage/骨架均不分发，聚合数字见 `data/bridgegen-summary.csv`）。
+§19 来自 `tools/linkgate_contract.py` / `java/mcport/LinkGate.java` / `demo/gate/run.sh` 在 8 份真实 LinkCheck 工单、两版 target、一个合成 stub jar 上的契约生成 + JVM premain 实跑与 81 条端到端断言（2026-11-15；两版各 4 工单 / 1190 原始引用 / 1019 唯一引用；26.1 合成 stub 精确命中 `GlStateManager._activeTexture(I)V -> MISSING` 并干净拒绝 rc=2；完整契约与 stub 字节均不分发，聚合数字见 `data/linkgate-summary.csv`）。
 §17 来自 `tools/stringsurface.py` / `tools/test_stringsurface.py` 在 §15 复测后的 8 个真实
 mod jar、2 张目标声明表、2 张映射表上的 audit / rewrite 实跑、4 个改写 `.class` 的 `javap` 结构校验与
 78 条自包含断言（2026-11-15；7288 次字符串出现、70 条精确可改、150 条 fail-loud、6 个真实条目改写；

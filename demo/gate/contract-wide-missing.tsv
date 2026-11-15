@@ -1,0 +1,3 @@
+# WideCp.class 含 Long/Double 双槽 + modified UTF-8 NUL；其后的 String.length 引用必须仍被扫出
+java/lang/String  length  ()I  MISSING
+net/mc/World  getBlock  (III)I  MISSING
