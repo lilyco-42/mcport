@@ -1,0 +1,6 @@
+label,from,to,direction,kind,reversed,c_rows,c_rev_collisions,c_old_dupes,m_rows,f_rows,s_rows,m_src_hit,m_dst_hit,m_reverse_collisions,m_map_ambiguous,f_src_hit,f_dst_hit,f_reverse_collisions,f_map_ambiguous,strict,reasons
+1.21.1_to_1.20.1,1.21.1,1.20.1,backward,map,False,0,0,0,19043,9872,0,19043,19043,0,0,9872,9872,0,0,True,
+1.20.1_to_1.21.1_reverse,1.20.1,1.21.1,forward,map,True,0,0,0,19043,9872,0,19043,19043,0,0,9872,9872,0,0,True,
+1.21.1_to_1.21.11,1.21.1,1.21.11,forward,map,False,0,0,0,20782,11557,0,20782,20782,0,0,11557,11557,0,0,True,
+1.21.11_to_1.21.1_reverse,1.21.11,1.21.1,backward,map,True,0,0,0,20782,11557,0,20782,20782,0,0,11557,11557,0,0,True,
+1.21.1_to_26.1,1.21.1,26.1,forward,bridge,False,10737,11,0,57248,49681,8246,40928,40754,197,0,37473,43304,265,0,False,BRIDGE_NOT_A_LINKCHECK_MAP|C_ROWS_CHANGE_OWNER_NAMESPACE|CLASS_IDENTITY_COLLISION|MEMBER_REVERSE_COLLISION|SOURCE_DECL_MISS|TARGET_DECL_MISS

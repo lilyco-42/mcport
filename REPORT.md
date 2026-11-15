@@ -1397,6 +1397,90 @@ python3 tools/stringsurface.py --spec /work/spec.json --out-dir /work/rw --rewri
 
 
 
+## 18. 版本能力契约与 fail-loud 出货闸门（McPort 0.1.9）
+
+### 18.1 为什么是闸门，而不是又一个加载器
+
+§14 的 `tools/loader.py` 回答「给定 (mod jar, 目标 client jar) 如何装配」；§15–§17 分别补严格 C 行迁移、零自动修复的人工桥工作台、Mixin refmap / 反射 LDC 的字符串姓名表面。但 0.1.8 之前这些证据散落在不同 `--out-dir`，没有单一机器可读判定去阻止把 `PLAN_ONLY` 计划、把 26.x 身份桥当 LinkCheck `--map`、把 unresolved refmap 或未审人工桥骨架当成可发布状态。§18 把四版 decl 表变成确定性「版本能力契约」，把映射 / 桥、loader plan、LinkCheck 工单、stringsurface / bridgegen 统计聚合成一个 fail-loud 闸门。输出只有 `READY` / `NEEDS_MANUAL` / `UNSUPPORTED` 三档；`READY` 仅表示**静态符号证据齐备且零 SIGCHG/MISSING**，不表示能在真实客户端运行，也不表示行为等价。JVMS §5.4.3 的精确链接与同名同签名语义漂移（§7 / §13）依旧封死「任意版本任意 mod 全平台」。
+
+### 18.2 输入 / 输出契约
+
+纯标准库 `tools/capability.py`，`schema=1`。`versions[]` 每项 `{version, generation: obf|deobf, decl}`；`maps[]` 每项 `{from, to, path, kind: map|bridge, direction, reverse?}`；`plans[]` 为 `loader.py` 产出的 plan JSON；`tickets[]` 为 `{glob, version}`（LinkCheck 工单）；`stats.stringsurface[]` / `stats.bridgegen[]` 为 §17 / §16 的聚合 `stats.json`。CLI 的 `--spec` / `--out-dir` 必填，`--emit-contract` 才额外写完整 `capability-<version>.tsv`，`--no-gate` 仅调试时强制返回 0，`--quiet` 静默。默认退出码 `READY=0` / `NEEDS_MANUAL=2` / `UNSUPPORTED=1`；输入错误打印 `CAPABILITY_INPUT_ERROR` 且**不写** `gate.json`。产物 `gate.json` / `map-audit.csv` / `surface-diff.csv` / `triage.tsv` / `stats.json` / `capability-<version>.tsv` 只写 `--out-dir`，不进仓库与发布包。
+
+### 18.3 四版能力清单（确定性摘要）
+
+`capability_digest` 为 C/M/F 行排序后 SHA-256；`rows` 为 C+M+F+S 去重集合规模。1.20.1 / 1.21.1 / 1.21.11 是 intermediary `obf`，26.1 是官方去混淆 `deobf`。
+
+| 版本 | generation | C | M | F | rows | digest（前 12） |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| 1.20.1 | obf | 7436 | 63477 | 33135 | 111484 | `51d49880e4ed` |
+| 1.21.1 | obf | 8269 | 73432 | 37906 | 127876 | `de00427a079a` |
+| 1.21.11 | obf | 10291 | 89557 | 45679 | 155818 | `2c9fcc26390f` |
+| 26.1 | deobf | 10682 | 92527 | 47418 | 161309 | `6f39af565caa` |
+
+完整 64 位摘要见 `data/capability-contracts.csv`。该清单只是**声明集合**，不含方法体、不含继承解析后的动态分派结果，更不含行为语义。
+
+### 18.4 严格映射的双向自证
+
+`reverse_map` 只允许无 C 行、无歧义的严格 `map`：把 (owner, desc, oldName, newName) 互换成员名后按目标 decl 复核；26.x bridge 含 C 行，直接抛 `InputError`。四张严格 map 全部源 / 目标 100% 直接命中、零逆向碰撞、零歧义，`strict=True`；不改变描述符命名空间。
+
+| label | direction | reversed | M/F 行 | M src/dst 命中 | F src/dst 命中 | M/F 逆向碰撞 | strict |
+| --- | --- | --- | ---: | ---: | ---: | ---: | --- |
+| `1.21.1_to_1.20.1` | backward | False | 19043 / 9872 | 19043 / 19043 | 9872 / 9872 | 0 / 0 | True |
+| `1.20.1_to_1.21.1_reverse` | forward | True | 19043 / 9872 | 19043 / 19043 | 9872 / 9872 | 0 / 0 | True |
+| `1.21.1_to_1.21.11` | forward | False | 20782 / 11557 | 20782 / 20782 | 11557 / 11557 | 0 / 0 | True |
+| `1.21.11_to_1.21.1_reverse` | backward | True | 20782 / 11557 | 20782 / 20782 | 11557 / 11557 | 0 / 0 | True |
+| `1.21.1_to_26.1` | forward | False | 57248 / 49681 | 40928 / 40754 | 37473 / 43304 | 197 / 265 | **False** |
+
+### 18.5 前后向 API 表面差
+
+`surface_diff` 对 lost 成员依次判定 `renamed`（目标 exact 命中）/ `mapped_target_absent`（有映射但目标无此声明）/ `sigchg`（同名不同描述符）/ `missing`（同名也消失）；后三类都属静态需人工，不并入 renamed。`identity_break` 只在 deobf 命名空间切换时为真。
+
+| 方向 | C same/lost/added | M same/lost | M renamed/absent/sigchg/missing | F same/lost | F renamed/absent/sigchg/missing | identity_break |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1.21.1 → 1.20.1 | 7033 / 1236 / 403 | 52160 / 21272 | 185 / 0 / 4560 / 16527 | 29772 / 8134 | 179 / 0 / 801 / 7154 | False |
+| 1.20.1 → 1.21.1（reverse） | 7033 / 403 / 1236 | 52160 / 11317 | 185 / 0 / 4195 / 6937 | 29772 / 3363 | 179 / 0 / 796 / 2388 | False |
+| 1.21.1 → 1.21.11 | 7716 / 553 / 2575 | 57176 / 16256 | 267 / 0 / 5491 / 10498 | 32782 / 5124 | 213 / 0 / 451 / 4460 | False |
+| 1.21.11 → 1.21.1（reverse） | 7716 / 2575 / 553 | 57176 / 32381 | 267 / 0 / 5843 / 26271 | 32782 / 12897 | 213 / 0 / 451 / 12233 | False |
+| 1.21.1 → 26.1（bridge） | 21 / 8248 / 10661 | 62 / 73370 | 27441 / 13487 / 15583 / 16859 | 40 / 37866 | 31677 / 5796 / 20 / 373 | **True** |
+
+前向与后向数字**不是同一个数**：例如 1.21.11 → 1.21.1 的 `methods_missing=26271`，而 1.21.1 → 1.21.11 是 10498；因为「后向」把目标新增的成员计入 lost 未命中。这是能力集合差，不是 mod 通过率。26.1 方向 `classes_same` 仅 21、`classes_renamed=7549`，说明官方去混淆是整张命名空间身份切换，而不是逐成员改名。
+
+### 18.6 26.x 身份桥不可逆（硬边界）
+
+`bridge-26.tsv` 含 10737 条 C 行、57248 条 M、49681 条 F、8246 条 S。按原 owner 直接查 26.1 decl 命中 0；必须先用 C 行换 owner、再对描述符中的 `Lowner;` 做替换。即便如此，M 目标直接命中 40754 / 57248（71.2%）、F 命中 43304 / 49681（87.2%），且 C 逆向碰撞 11、M/F 逆向碰撞 197 / 265。审计给出 6 条 fail-loud reason：`BRIDGE_NOT_A_LINKCHECK_MAP`、`C_ROWS_CHANGE_OWNER_NAMESPACE`、`CLASS_IDENTITY_COLLISION`、`MEMBER_REVERSE_COLLISION`、`SOURCE_DECL_MISS`、`TARGET_DECL_MISS`。因此该表只能供离线 `RemapTool` / `stringsurface` 使用，**绝不能当 LinkCheck `--map`**；`gate_plan` 对 deobf 还硬拒 startup agent、缺 `checkedJar` 或 `checkMode` 不含 `RemapTool` / `no --map` 的计划。§14 的 C5 错误示范（`total=155, resolve=4, sigchg=3, missing=141, ceiling=2.6`）在 poison 场景被判 `UNSUPPORTED`；S2 正例（`RemapTool + LinkCheck(no --map)`，86 / 9 / 52）只判 `NEEDS_MANUAL`。
+
+### 18.7 四组闸门实跑
+
+| 场景 | 输入 | verdict | rc | evidence（READY / NEEDS_MANUAL / UNSUPPORTED） |
+| --- | --- | --- | ---: | --- |
+| clean | 3 版 + 4 严格 map + 7 证据 | `READY` | 0 | 7 / 0 / 0 |
+| manual | 4 版 + 1 bridge + 6 证据 | `NEEDS_MANUAL` | 2 | 2 / 4 / 0 |
+| poison | 26.x bridge + C5 错误计划 | `UNSUPPORTED` | 1 | 2 / 0 / 1 |
+| full | 4 版 / 5 map / 17 plan / 50 工单 / 4 stats | `UNSUPPORTED` | 1 | 10 / 12 / 28 |
+
+`full` 的 50 条 evidence 分解：`loader_plan` 35（4 READY / 3 NEEDS_MANUAL / 28 UNSUPPORTED，来自 17 份 plan 的每个 mod 条目）、`map_audit` 5 READY、`identity_bridge` 1 READY、`linkcheck_tickets` 5 NEEDS_MANUAL、`stringsurface_stats` 2 NEEDS_MANUAL、`bridgegen_stats` 2 NEEDS_MANUAL。50 份 LinkCheck 工单共 14584 条引用，解析坏格式 0、标量 / details 不自洽 0。reason 计数：`PLAN_ONLY_NOT_SYMBOL_CHECKED` 16、`LOADER_UNSUPPORTED` 7、`MANUAL_REFS` 5、`MANUAL_ADAPTERS_REQUIRED` 4、`MISSING_ARTIFACT` 4、`UNRESOLVED_STRING_SURFACE` 2、`UNREVIEWED_BRIDGE_CANDIDATES` 2、`BRIDGE_AS_LINKCHECK_MAP` 1、`DEOBF_STARTUP_AGENT_FORBIDDEN` 1。四组聚合见 `data/capability-gates.csv`。
+
+### 18.8 复现与踩坑（自备制品，脚本不下载不入库）
+
+```bash
+python3 tools/test_capability.py                                  # 156 断言，零外部数据
+python3 tools/capability.py --spec /work/spec.json --out-dir /work/gate
+python3 tools/capability.py --spec /work/spec.json --out-dir /work/gate --emit-contract
+```
+
+* 默认即闸门并写 `triage.tsv`；`--no-gate` 只用于调试。spec 模板 `data/capability-spec.example.json` 全为路径占位符。
+* 工单解析必须显式允许 `<init>` / `<clinit>`；按普通标识符规则会把构造器误判成坏格式。字段引用形如 `owner.nameLdesc;`（描述符前无点号），方法引用形如 `owner.name(desc)ret`，尾部可带 `  # ...` 或 `  -> newName`。
+* `surface_diff` 必须一次性预建 `(owner,name)` 索引集合；在循环内重建全量表会超时（本机一次试探性实现超过 300s）。
+* `CLAIM_POLICY` 固定为 `static-evidence-only; no runtime claim`；`assert_no_claims` 对越界 verdict 与承诺词直接抛异常。
+* `gate_tickets` 同时校验 `details` 各桶数组长度与工单标量；坏引用会连带触发 total 校验失败，故逐条工单至少产生 2 个 integrity error。
+* `data/capability-*.csv` 只含聚合数字；`gate.json` / `triage.tsv` / `stats.json` / `capability-<version>.tsv` 只写 `--out-dir`，**不进仓库与发布包**（发布脚本有禁止断言）。
+* 中文路径 + 空 locale 会让裸 `javac` 报 `file not found`（§5 第 16 条），所有 `*.sh` 已 locale 自愈。
+
+### 18.9 结论与残余
+
+0.1.9 **没有新增 JVM 层加载器，也没有扩大「能跑」集合**：它把 0.1.0–0.1.8 的静态证据合成可审计的三档出货判定，只有「严格 map + 符号复测齐全 + 零人工缺口 + 零 unresolved / 未审候选」才允许 `READY`。四版真实实测里仅 clean 场景 7/7 READY，full 场景因 28 条 UNSUPPORTED / 12 条 NEEDS_MANUAL 被拒。残余不变：179 SIGCHG + 423 MISSING 需人工、真实客户端 / Fabric / LWJGL / Mixin 端到端未证、同名同签名语义漂移静态不可判定、Bedrock 非 JVM 平台不在射程。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付是「分段适配 + 逐版本能力契约 + fail-loud 闸门」，不是万能加载器。
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -1422,4 +1506,5 @@ LinkCheck 工单、两张真实目标声明表上的生成 + RemapTool + 无 `--
 §17 来自 `tools/stringsurface.py` / `tools/test_stringsurface.py` 在 §15 复测后的 8 个真实
 mod jar、2 张目标声明表、2 张映射表上的 audit / rewrite 实跑、4 个改写 `.class` 的 `javap` 结构校验与
 78 条自包含断言（2026-11-15；7288 次字符串出现、70 条精确可改、150 条 fail-loud、6 个真实条目改写；
-输入字节、triage / fixed jar 均不分发，聚合数字见 `data/stringsurface-summary.csv`）。*
+输入字节、triage / fixed jar 均不分发，聚合数字见 `data/stringsurface-summary.csv`）。
+§18 来自 `tools/capability.py` / `tools/test_capability.py` 在四版真实声明表、三张 map/bridge、17 份 loader plan、50 份 LinkCheck 工单、2 份 stringsurface 与 2 份 bridgegen 聚合 stats 上的四组闸门实跑与 156 条自包含断言（2026-11-15；50 条 evidence、14584 条引用零坏格式；输入字节、gate / triage / 完整能力清单均不分发，聚合数字见 `data/capability-*.csv`）。*

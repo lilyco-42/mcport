@@ -64,6 +64,14 @@ https://asm.ow2.io/ ，许可原文 https://asm.ow2.io/license.html ：
    官方映射或第三方 mod 字节码。`tools/test_stringsurface.py` 只合成等价假输入。
    `data/stringsurface-summary.csv` / `stringsurface-README.md` 仅聚合数字与口径，
    `data/stringsurface-spec.example.json` 仅路径占位符。
+* **能力契约 / 出货闸门 §18 的输入与产物**：`tools/capability.py` 只在运行时读调用方自备的
+  `decl-*.tsv` / `map-*.tsv` / `bridge-*.tsv`、loader plan JSON、LinkCheck 工单 JSON、
+  stringsurface / bridgegen `stats.json`；`gate.json` / `map-audit.csv` / `surface-diff.csv` /
+  `triage.tsv` / `stats.json` / `capability-<version>.tsv` 只写进 `--out-dir`，不下载、
+  不复制、不内嵌 Mojang 类字节、官方映射或第三方 mod 字节码。
+  `tools/test_capability.py` 只合成等价假输入。`data/capability-*.csv` 与
+  `data/capability-README.md` 仅含聚合数字与口径，`data/capability-spec.example.json`
+  仅路径占位符。
 
 * **热门 Fabric mod 二进制**（Sodium / Iris / ImmediatelyFast / YACL /
   Xaero's Minimap / fabric-language-kotlin 等）：仅在本机 `/tmp` 下用于

@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "versions": [
+    { "version": "<version-A>", "generation": "obf", "decl": "/path/to/decl-A.tsv" },
+    { "version": "<version-B>", "generation": "obf", "decl": "/path/to/decl-B.tsv" },
+    { "version": "<version-C>", "generation": "deobf", "decl": "/path/to/decl-C.tsv" }
+  ],
+  "maps": [
+    { "from": "<version-A>", "to": "<version-B>", "path": "/path/to/map-A-B.tsv", "kind": "map", "direction": "backward" },
+    { "from": "<version-B>", "to": "<version-A>", "path": "/path/to/map-A-B.tsv", "kind": "map", "direction": "forward", "reverse": true },
+    { "from": "<version-A>", "to": "<version-C>", "path": "/path/to/bridge-C.tsv", "kind": "bridge", "direction": "forward" }
+  ],
+  "plans": [
+    "/path/to/loader-plan-A.json"
+  ],
+  "tickets": [
+    { "glob": "/path/to/report-*.json", "version": "<version-A>" }
+  ],
+  "stats": {
+    "stringsurface": [
+      { "path": "/path/to/stringsurface/stats.json", "version": "<version-A>" }
+    ],
+    "bridgegen": [
+      { "path": "/path/to/bridgegen/stats.json", "version": "<version-A>" }
+    ]
+  }
+}

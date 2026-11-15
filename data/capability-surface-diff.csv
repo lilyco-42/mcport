@@ -1,0 +1,6 @@
+classes_added,classes_lost,classes_renamed,classes_same,direction,fields_added,fields_lost,fields_map_ambiguous,fields_mapped_target_absent,fields_missing,fields_renamed,fields_same,fields_sigchg,identity_break,label,map_kind,methods_added,methods_lost,methods_map_ambiguous,methods_mapped_target_absent,methods_missing,methods_renamed,methods_same,methods_sigchg
+403,1236,0,7033,backward,3363,8134,0,0,7154,179,29772,801,False,1.21.1_to_1.20.1,map,11317,21272,0,0,16527,185,52160,4560
+1236,403,0,7033,forward,8134,3363,0,0,2388,179,29772,796,False,1.20.1_to_1.21.1_reverse,map,21272,11317,0,0,6937,185,52160,4195
+2575,553,0,7716,forward,12897,5124,0,0,4460,213,32782,451,False,1.21.1_to_1.21.11,map,32381,16256,0,0,10498,267,57176,5491
+553,2575,0,7716,backward,5124,12897,0,0,12233,213,32782,451,False,1.21.11_to_1.21.1_reverse,map,16256,32381,0,0,26271,267,57176,5843
+10661,8248,7549,21,forward,47378,37866,0,5796,373,31677,40,20,True,1.21.1_to_26.1,bridge,92465,73370,0,13487,16859,27441,62,15583

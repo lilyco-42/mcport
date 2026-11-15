@@ -4,3 +4,9 @@ demo/build/
 .DS_Store
 __pycache__/
 *.pyc
+gate.json
+triage.tsv
+stats.json
+map-audit.csv
+surface-diff.csv
+capability-*.tsv
