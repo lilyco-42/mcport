@@ -12,5 +12,16 @@
     "policy": "reject",
     "version": "26.1"
   },
-  "note": "paths are placeholders; tool never downloads or embeds Mojang bytes or mod binaries"
+  "note": "paths are placeholders; tool never downloads or embeds Mojang bytes or mod binaries",
+  "audit": {
+    "contract": "/work/capability-26.1.tsv",
+    "modjar": "/work/mod.jar",
+    "tickets": [
+      "/work/tickets/26.1__*.json"
+    ],
+    "version": "26.1",
+    "out": "/work/contract-audit.json",
+    "summary": "/work/contract-audit.csv",
+    "note": "section 21 canonical audit; paths are placeholders"
+  }
 }

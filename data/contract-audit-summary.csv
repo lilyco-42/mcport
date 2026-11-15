@@ -1,0 +1,3 @@
+schema,version,contract,modjar,contract_rows,contract_sha256,source_sha256,ticket_count,ticket_digest_ok,regenerated_bytes_match,classes,member_refs,covered,external,third_party,array_refs,unknown_game_refs,unclassified_refs,stale_contract_refs,known_blockers,renames,needs_manual_refs,verdict,reasons
+1,1.21.11,canonical-1.21.11.tsv,gate-stub.jar,1019,2e604ed080e56b36becf455c9fb7274341d404ac7d21678a087536c494f204d1,753a1d5ed111dd41105604995943a8509e590f433176d00e65cd44ae3a8dffdb,4,1,1,1,2,1,1,0,0,0,0,1018,1,0,1,NEEDS_MANUAL,
+1,26.1,canonical-26.1.tsv,gate-stub.jar,1019,539fd26a22bd9d666f5292d1e0a1860ba94438fff25a0973c1e9021c34208e2d,53e65459f93b9007ada8d9825a80e649c450694d0c8c425667d1f99a5a553bd7,4,1,1,1,2,1,1,0,0,0,0,1018,1,0,1,NEEDS_MANUAL,

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "version": "26.1",
+  "contract": "/work/capability-26.1.tsv",
+  "modjar": "/work/mod.jar",
+  "tickets": [
+    "/work/tickets/26.1__*.json"
+  ],
+  "game_prefixes": [
+    "net/minecraft/",
+    "com/mojang/blaze3d/",
+    "com/mojang/math/",
+    "com/mojang/realmsclient/"
+  ],
+  "allow_third_party": false,
+  "coverage_only": false,
+  "fail_stale": false,
+  "out": "/work/contract-audit.json",
+  "summary": "/work/contract-audit.csv",
+  "note": "paths are placeholders; tool never downloads or embeds Mojang bytes, mappings, contracts or mod binaries"
+}

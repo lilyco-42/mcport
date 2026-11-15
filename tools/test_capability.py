@@ -152,6 +152,14 @@ def unit():
     ok(cap.parse_ref('net/minecraft/A.f') is None, 'parse_ref field no desc')
     ok(cap.parse_ref('net/minecraft/A.<clinit>()V')[2] == '<clinit>',
        'parse_ref clinit')
+    # REPORT section 21: strict JVMS 4.3 grammar fixes the silent-pass bug.
+    ok(cap.parse_ref('net/minecraft/A.shaderLightDirections[Lorg/joml/Vector3f;')
+       == ('F', 'net/minecraft/A', 'shaderLightDirections',
+           '[Lorg/joml/Vector3f;'),
+       'strict parse_ref rejects impossible L...[L...; descriptor')
+    ok(cap.parse_ref('net/minecraft/A.fLx(;') is None,
+       'strict parse_ref rejects malformed object descriptor')
+
 
 
 def decl_and_map(root):

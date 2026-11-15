@@ -1598,6 +1598,47 @@ LinkGate 把「静态预言」推进到「启动期零修改拒绝」，但不�
 0.2.1 **没有新增 JVM 层加载器，也没有扩大「能跑」集合**：它只把「闸门说 `PASS`」的前提收紧为「契约身份对得上、jar 真的被扫过、契约自身无冲突且合法」。G15 的同名同签名 42→6 依旧 `PASS`，正是 JVMS §5.4.3 精确链接 + 语义漂移静态不可判的持续反证；反射 / 配置 / 资源字符串（§17）、真实客户端 / Fabric / LWJGL / Mixin 端到端、179 SIGCHG + 423 MISSING 人工缺口全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
 
 
+## 21. 契约完整性与覆盖率审计（McPort 0.2.2）
+
+### 21.1 §19.8 / §20.4 的一个真实「静默放行」实例
+
+§20 只保证 `LinkGate` 自身读到的契约行与头不冲突、身份可绑定，却没有证明「契约键真的能在 class 常量池里出现」。0.2.2 编写 `tools/contract_audit.py` 的严格契约解析器时，真实 26.1 工单立刻暴露出 0.2.1 已发布链路的一个具体 bug：
+
+`data/hotmods/26.1__ImmediatelyFast-Fabric-1.6.15_2B1.21.1.j.json` 的一条 `SIGCHG` 原文是 `com/mojang/blaze3d/systems/RenderSystem.shaderLightDirections[Lorg/joml/Vector3f;  # name kept by ..., descriptor changed`。`LinkCheck.toString()` 按 `owner + "." + name + desc` 输出，字段名和字段描述符之间**没有分隔符**；旧 `tools/capability.py` 的 `FIELD_DESC` 使用 `L[^;]+;`，会接受类名里嵌入 `[` 与第二个 `L` 的假对象描述符，而字段切分又取**首个**看似合法的分割，于是生成器写出 `name=shader`、`desc=LightDirections[Lorg/joml/Vector3f;`。该描述符不是合法 JVMS §4.3 类型，永远不会与任何 `CONSTANT_Fieldref` 的 `NameAndType` 相等；`LinkGate` 对该未知引用默认 `RESOLVE`，于是**一个已知 SIGCHG 被静默放行**。1.21.11 的 4 份真实工单也各含同一条 ImmediatelyFast 引用，两版各 1 条坏描述符、其余 1189 条合法。
+
+根因修在共用入口 `capability.parse_ref`：新增 `STRICT_FIELD_DESC` / `STRICT_METHOD_DESC`，对象类型必须是 `L` + 合法内部类名 + `;`，数组、参数表、返回值都按 JVMS §4.3 完整校验；字段引用收集全部合法 `(name, desc)` 切分并取**最长合法成员名**（最短合法描述符）。上例恢复为 `name=shaderLightDirections`、`desc=[Lorg/joml/Vector3f;`。旧 `FIELD_DESC` / `METHOD_DESC` / `OBJ_IN_DESC` 保留给其他既有逻辑，不改 `LinkGate` 的宽松向后兼容解析，也不改 12 个旧 demo 手写契约。`tools/test_capability.py` 新增 2 条断言锁定此根因，156 → 158 断言。
+
+修复不是「解析出绝对真值」：源文本固有歧义仍在。按严格语法统计，1.21.11 有 3 条、26.1 有 51 条字段文本存在多个合法 `(name, desc)` 切分；工具一律选最长合法成员名并在本节记录，绝不把启发式写成证明。独立解析器 `tools/bridgegen.py:parse_ref` 与 `tools/relocate.py:parse_ref` 返回形状不同且各有旧粗正则，按统一 `(owner,name,desc)` 三元组比较，两版仍分别有 197 / 1 条与严格解析不一致；本轮只修契约生成器与审计器共用的 `capability.parse_ref`，不扩大 §16 / §15 回归面，差异作为残余留档。
+
+### 21.2 纯标准库离线审计器：`tools/contract_audit.py`
+
+`LinkGate` 仍是启动期 `-javaagent`；0.2.2 新增的是**发布前 / 装载前的静态证据闸门**，纯 Python 标准库、零 ASM、零 Java 新类、不下载也不内嵌 Mojang client jar、官方映射或第三方 mod 字节码。它把「有资格说 `PASS`」的前提从「契约头合法」推进到「契约本身 canonical、可由工单逐字节复现、键语法合法、mod jar 的游戏命名空间引用确实被覆盖」：
+
+1. **canonical 契约**：`parse_contract` 要求 UTF-8 / LF、4 行生成器头、四个头字段齐全、`schema=1`、64 位小写 hex `source_sha256`；每个数据行恰好 4 个 TAB 列，字段无空白，owner / name / desc 按严格 JVMS 语法校验，status 大写且属于四桶，重复键与乱序直接 `CONTRACT_NOT_CANONICAL`。旧 `LinkGate` 的 `<4 列静默 continue`、`>4 列忽略`、双空格分隔、注释行等宽松输入在审计器一律 fail-loud；这正是不改旧 fixture、新增 G27 的原因。
+2. **工单溯源**：给 `--ticket` 时重算 `source_digest`、核对 `source_tickets` / `source_sha256`，并用 `linkgate_contract.build(paths, version)` 与契约原始字节逐字节比较；`ticket_digest_ok` / `regenerated_bytes_match` 必须同时为真，否则 `TICKET_DIGEST_MISMATCH` / `REGENERATION_MISMATCH`。只改数据行而头摘要未变也能被字节比较抓到。
+3. **常量池覆盖率**：`parse_constant_pool` / `class_member_refs` 纯 Python 两遍解析 `.class`，严格处理 `CONSTANT_Utf8` modified UTF-8、Long/Double 双槽、tag 9/10/11 的 Class 与 NameAndType 索引；截断、坏 tag、末槽 Long、索引越界全部 `BAD_CLASS_FILE` / `BAD_MODIFIED_UTF8`，不再像 `LinkGate.parseClass` 那样 `continue`。`scan_jar` 只读排序后的 `.class` 条目，零 class / 重复条目 fail-loud。
+4. **引用分类**：默认游戏命名空间 `net/minecraft/`、`com/mojang/blaze3d/`、`com/mojang/math/`、`com/mojang/realmsclient/`；工单 `EXTERNAL` 明细精确豁免外部库，JDK / 已知 Mojang 独立库前缀只作补充。每条游戏 ref 必须命中契约，未命中记 `unknown_game_refs`；其他第三方 ref 默认 `unclassified_refs`，只有显式 `--allow-third-party` 才豁免；`stale_contract_refs` 恒量化（聚合契约跨多 mod 属正常），只有 `--fail-stale` 才阻断。
+5. **三档判定**：任何结构性 reason → `UNSUPPORTED` rc=1；否则 `--coverage-only` → `COVERAGE_ONLY_OK` rc=0；否则命中 `MISSING` / `SIGCHG` / `RENAME` → `NEEDS_MANUAL` rc=2；否则 `COVERAGE_OK` rc=0。所有成功 stdout 强制附 `does NOT mean runtime-compatible; RESOLVE and coverage do NOT prove semantic equivalence`；`--out` JSON 与 `--summary` 24 列 CSV 即使失败也写报告，绝不静默退出。
+
+### 21.3 两版真实工单 / 合成 stub 的实测
+
+严格 `parse_ref` 后，1.21.11 / 26.1 各 4 份真实工单重新生成 canonical 契约：1190 原始引用、28 条 `EXTERNAL` 原始行（`Codec.fieldOf` 在两份工单重复，精确集合 27 键）、1019 唯一契约键、0 条坏描述符、0 冲突。契约字节 / SHA-256 分别为 `74091` / `2e604ed080e56b36becf455c9fb7274341d404ac7d21678a087536c494f204d1` 与 `97115` / `539fd26a22bd9d666f5292d1e0a1860ba94438fff25a0973c1e9021c34208e2d`；分桶仍为 `742/0/86/191` 与 `728/0/68/223`，`source_sha256`、`data/linkgate-summary.csv` 两行计数完全不变（只由工单 basename + bytes 计算）。
+
+`demo/gate/run.sh` 从 24 场景 122 断言扩到 **27 场景 133 断言**：
+
+| 场景 | 铁证 |
+| --- | --- |
+| G25 | 真实 26.1 契约 + 4 工单 + 合成 `gate-stub.jar`：`ticket_digest_ok=true`、`regenerated_bytes_match=true`、`contract_rows=1019`、`classes=1`、`member_refs=2`、`covered=1`、`external=1`、`unknown=0`、`unclassified=0`、`stale=1018`、`needs_manual=1`，`verdict=NEEDS_MANUAL` rc=2，stderr `NEEDS_MANUAL refs=1` |
+| G26 | 契约含 `com/mojang/blaze3d/systems/RenderSystem` / `shaderLightDirections` / `[Lorg/joml/Vector3f;` / `SIGCHG`，且不含 `LightDirections[Lorg` 旧错键 |
+| G27 | 旧 `contract-26.1-head.tsv`（双空格、注释、伪 digest）被审计器以 `CONTRACT_NOT_CANONICAL` rc=1 拒绝；旧 `LinkGate` 仍可宽松读取它，二者职责分离 |
+
+`tools/test_contract_audit.py` 是 421 行自包含回归，合成 ticket / canonical 契约 / class 常量池 / jar 与 CLI 分支共 **110 断言**：覆盖 modified UTF-8、Long/Double 双槽、严格描述符、10 类契约变异、`COVERAGE_OK` / `COVERAGE_ONLY_OK` / `NEEDS_MANUAL` / `UNSUPPORTED`、版本错配、工单摘要与字节复现、坏 class、空 jar、第三方豁免、`--fail-stale`、JSON/CSV 确定性、真实 4 工单集成。`data/contract-audit-summary.csv` 只保存两版聚合行，`data/contract-audit-README.md` / `data/contract-audit-spec.example.json` 只保存口径与路径占位符；完整契约、工单 JSON 之外的输入、stub jar、JSON 报告都不进发布包。
+
+### 21.4 结论与残余
+
+0.2.2 **修掉了一个已发布链路的真实静默放行，并把「契约质量依赖上游工单」从口头残余变成可机器复核的三档证据**；它没有新增 JVM 层加载器、没有重映射任何 mod、没有扩大「能跑」集合。G15 的同名同签名 42→6 对 `LinkGate` 仍是 `PASS`，对审计器也最多是 `COVERAGE_OK`，因为 JVMS §5.4.3 只保证按名+描述符链接，同名同签名语义漂移静态不可判。§21 看不到反射 / 配置 / 资源字符串的运行期取值（§17 只精确审过字符串表面），不覆盖真实客户端 / Fabric / LWJGL / Mixin 端到端；179 SIGCHG + 423 MISSING 的人工缺口不变；源文本歧义 3 / 51、独立解析器差异 197 / 1 仍需人工或下一轮统一。严格审计是「有资格说 PASS」的前提，不是「能跑」的证明。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付继续是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
+
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -1626,4 +1667,5 @@ LinkCheck 工单、两张真实目标声明表上的生成 + RemapTool + 无 `--
 mod jar、2 张目标声明表、2 张映射表上的 audit / rewrite 实跑、4 个改写 `.class` 的 `javap` 结构校验与
 78 条自包含断言（2026-11-15；7288 次字符串出现、70 条精确可改、150 条 fail-loud、6 个真实条目改写；
 输入字节、triage / fixed jar 均不分发，聚合数字见 `data/stringsurface-summary.csv`）。
-§18 来自 `tools/capability.py` / `tools/test_capability.py` 在四版真实声明表、三张 map/bridge、17 份 loader plan、50 份 LinkCheck 工单、2 份 stringsurface 与 2 份 bridgegen 聚合 stats 上的四组闸门实跑与 156 条自包含断言（2026-11-15；50 条 evidence、14584 条引用零坏格式；输入字节、gate / triage / 完整能力清单均不分发，聚合数字见 `data/capability-*.csv`）。*
+§18 来自 `tools/capability.py` / `tools/test_capability.py` 在四版真实声明表、三张 map/bridge、17 份 loader plan、50 份 LinkCheck 工单、2 份 stringsurface 与 2 份 bridgegen 聚合 stats 上的四组闸门实跑与 156 条自包含断言（2026-11-15；50 条 evidence、14584 条引用零坏格式；输入字节、gate / triage / 完整能力清单均不分发，聚合数字见 `data/capability-*.csv`）。
+§21 来自 `tools/capability.py` 的严格 JVMS §4.3 `parse_ref` 修复、`tools/contract_audit.py` / `tools/test_contract_audit.py` 与 `demo/gate/run.sh` G25–G27 在两版 8 份真实 LinkCheck 工单、两份 canonical 契约、一个合成 stub jar 上的实跑（2026-11-16；0 坏描述符、契约字节 74091 / 97115、110 条自包含断言、27 场景 133 断言；输入字节与完整契约不分发，聚合数字见 `data/contract-audit-summary.csv`）。*

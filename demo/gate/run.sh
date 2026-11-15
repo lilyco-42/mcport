@@ -320,5 +320,30 @@ ck_rc G24_rc_2 G24 2
 ck_has G24_fail G24 err "conflicting @version header"
 ck G24_stdout_empty eq "$(cat build/G24.out)" ""
 
+echo
+echo "== G25. section 21 contract_audit: canonical contract + provenance + known blocker =="
+run G25 python3 ../../tools/contract_audit.py \
+  --contract build/contract-26.1.tsv --modjar build/gate-stub.jar \
+  --version 26.1 --ticket '../../data/hotmods/26.1__*.json' \
+  --out build/contract-audit-g25.json --summary build/contract-audit-g25.csv
+ck_rc G25_rc_2 G25 2
+ck_has G25_needs_manual G25 out "verdict=NEEDS_MANUAL"
+ck_has G25_covered_1 G25 out "covered=1"
+ck_has G25_unknown_0 G25 out "unknown=0"
+ck_has G25_manual_detail G25 err "NEEDS_MANUAL refs=1"
+ck G25_digest_ok has build/contract-audit-g25.json '"ticket_digest_ok": true'
+ck G25_regen_ok has build/contract-audit-g25.json '"regenerated_bytes_match": true'
+
+echo "== G26. section 21 root-cause fix: SIGCHG field no longer mis-split =="
+ck G26_fixed_key has build/contract-26.1.tsv "$(printf 'com/mojang/blaze3d/systems/RenderSystem\tshaderLightDirections\t[Lorg/joml/Vector3f;\tSIGCHG')"
+ck G26_no_bad_desc nhas build/contract-26.1.tsv "LightDirections[Lorg"
+
+echo "== G27. section 21 auditor is stricter than LinkGate: legacy loose contract rejected =="
+run G27 python3 ../../tools/contract_audit.py \
+  --contract contract-26.1-head.tsv --modjar "$MOD" \
+  --out build/contract-audit-g27.json
+ck_rc G27_rc_1 G27 1
+ck_has G27_not_canonical G27 err "CONTRACT_NOT_CANONICAL"
+
 echo "GATE_RESULT assertions=$CHECKS OK"
 echo OK

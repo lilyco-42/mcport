@@ -318,8 +318,32 @@ def surface_diff(src, dst, m, label, direction):
     return row
 
 
+# Strict JVMS 4.3 descriptor grammar (REPORT section 21).
+# The legacy FIELD_DESC/METHOD_DESC used L[^;]+;, which accepts an embedded
+# '[' and a second 'L' inside the class name.  LinkCheck.toString() emits
+# owner + "." + name + desc with NO delimiter, so a loose grammar picks the
+# FIRST legal split and can emit a descriptor that exists in no class file
+# (e.g. name='shader', desc='LightDirections[Lorg/joml/Vector3f;').  Such a
+# contract key never matches a constant-pool member and LinkGate's unknown-ref
+# default RESOLVE silently passes a known SIGCHG.  Strict grammar rejects it.
+# Where the source text is genuinely ambiguous (an object-typed field whose
+# name contains 'L'), all legal splits are collected and the LONGEST legal
+# member name wins; that residual is documented, never claimed as a proof.
+_STRICT_IDENT = r'[A-Za-z_$][A-Za-z0-9_$]*'
+_STRICT_OBJ = r'L' + _STRICT_IDENT + r'(?:/' + _STRICT_IDENT + r')*;'
+STRICT_FIELD_DESC = re.compile(r'^\[*(?:[BCDFIJSZ]|' + _STRICT_OBJ + r')$')
+STRICT_METHOD_DESC = re.compile(
+    r'^\((?:\[*(?:[BCDFIJSZ]|' + _STRICT_OBJ + r'))*\)'
+    r'(?:V|\[*(?:[BCDFIJSZ]|' + _STRICT_OBJ + r'))$')
+
+
 def parse_ref(s):
-    """解析 LinkCheck details 中的 owner.name(desc)ret / owner.nameLdesc; 引用。"""
+    """解析 LinkCheck details 中的 owner.name(desc)ret / owner.name<desc> 引用。
+
+    Strict descriptor grammar; see REPORT section 21.  Returns
+    ('M'|'F', owner, name, desc) or None.  For fields, the longest legal
+    member name (shortest legal descriptor) is used when several splits fit.
+    """
     s = s.split('  # ', 1)[0].strip()
     s = s.split('  -> ', 1)[0].strip()
     if '.' not in s:
@@ -328,14 +352,15 @@ def parse_ref(s):
     i = rest.find('(')
     if i >= 0:
         name, desc = rest[:i], rest[i:]
-        if MEMBER_NAME.fullmatch(name) and METHOD_DESC.fullmatch(desc):
+        if MEMBER_NAME.fullmatch(name) and STRICT_METHOD_DESC.fullmatch(desc):
             return ('M', owner, name, desc)
         return None
+    best = None
     for k in range(1, len(rest)):
         name, desc = rest[:k], rest[k:]
-        if MEMBER_NAME.fullmatch(name) and FIELD_DESC.fullmatch(desc):
-            return ('F', owner, name, desc)
-    return None
+        if MEMBER_NAME.fullmatch(name) and STRICT_FIELD_DESC.fullmatch(desc):
+            best = ('F', owner, name, desc)
+    return best
 
 
 def gate_tickets(pattern, version):
