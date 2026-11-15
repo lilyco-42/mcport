@@ -1,4 +1,4 @@
-# 统一严格引用解析器聚合数据说明（REPORT §22 / §23）
+# 统一严格引用解析器聚合数据说明（REPORT §22 / §23 / §24）
 
 本目录只含**可分发聚合数字、格式口径与路径占位符**，不含 Mojang client jar、官方 ProGuard 映射、第三方 mod 字节码、完整 LinkCheck 工单之外的输入或 mod jar。`tools/test_parse_unified.py` 只读取仓库内已有的 `data/hotmods/*.json` 聚合工单与合成符号文本；它是纯标准库自包含回归，不需要网络、游戏 jar 或映射。
 
@@ -17,4 +17,4 @@ python3 tools/test_parse_unified.py
 
 ## 边界
 
-统一解析器消除的是**工具内部误切分**，不是 Mojang API 差异、不是语义漂移证明，更不是「任意版本都有效」。源文本歧义 3 / 51 仍按最长合法成员名启发式记录，绝不把启发式写成证明。§16 的 `auto_fixed=0`、字段一律 `REJECT_FIELD`、§15 只读 `details.MISSING` 与严格三级接受均不变；同名同签名 42 与 6 的语义漂移仍静态不可彻底判定。 §23 的 `LinkCheck --refs-json` 让**新工单**可输出精确五元组，`tools/refcheck.py` 不再靠启发式猜 `(name,desc)`；本目录记录的 8 份历史真实工单 3 / 51 条源文本固有歧义没有配套结构化 refs，字节又必须保持，故仍按启发式留档，见 `data/refcheck-summary.csv`。
+统一解析器消除的是**工具内部误切分**，不是 Mojang API 差异、不是语义漂移证明，更不是「任意版本都有效」。源文本歧义 3 / 51 仍按最长合法成员名启发式记录，绝不把启发式写成证明。§16 的 `auto_fixed=0`、字段一律 `REJECT_FIELD`、§15 只读 `details.MISSING` 与严格三级接受均不变；同名同签名 42 与 6 的语义漂移仍静态不可彻底判定。 §23 的 `LinkCheck --refs-json` 让**新工单**可输出精确五元组，`tools/refcheck.py` 不再靠启发式猜 `(name,desc)`；本目录记录的 8 份历史真实工单 3 / 51 条源文本固有歧义没有配套结构化 refs，字节又必须保持，故仍按启发式留档，见 `data/refcheck-summary.csv`。 §24 只扩展链接面到类引用，不改任何工单符号文本解析，也不把统一解析升级成运行期证明；见 `data/classref-summary.csv` / `classref-README.md`。

@@ -1717,6 +1717,43 @@ LinkGate 把「静态预言」推进到「启动期零修改拒绝」，但不�
 
 0.2.4 从源头消除**新工单**的字段文本歧义，并用黄金字节证明旧 `--json` 普通路径没有回归；它不能追溯式消解 8 份历史真实工单里的 3 / 51 条歧义，因为这些工单没有配套 `--refs-json` 且字节必须保持以维持 `source_sha256`。本版不新增 JVM 层加载器、不重映射 mod、不改 `LinkGate` 的 `PASS` 语义、不扩大自动修复集合、不证明 `STRUCTURED_REFS_OK` 等于能跑或行为一致。179 SIGCHG + 423 MISSING 人工缺口、真实客户端 / Fabric / LWJGL / Mixin 端到端、反射 / 配置 / 资源字符串运行期取值、同名同签名语义漂移静态不可判全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
 
+## 24. 类级链接面审计（McPort 0.2.5）
+
+### 24.1 根因：成员级 PASS 仍可能 NoClassDefFoundError
+
+`java/mcport/LinkCheck.java` 的 `main()` 调用 `collect(mod, mrefs, frefs, cref)` 后只遍历 `mrefs` / `frefs`，`cref` 被完全丢弃。而 `cref` 在 `visit()` 父类、`visitTypeInsn`、`visitLdcInsn Type`、以及 method / field / invokedynamic 描述符 `descTypes()` 里收集了类引用（JVMS §5.4.3.1 的类解析面）。`java/mcport/LinkGate.java` 的 `RefSet` 同样只从 `Fieldref` / `Methodref`（tag 9/10/11）建 `memberRefs`，`CONSTANT_Class`（tag 7）只用于反解 owner。
+
+结果是真实盲区：mod 的每个成员引用都能在目标声明表里 `RESOLVE`，但只要目标版本删掉或改名了一个只在父类 / 数组 / 描述符 / 类型指令里出现的游戏类，运行期依然可能 `NoClassDefFoundError`。0.2.4 的 `--refs-json` 也只记 `kind=M|F` 成员五元组，没有类级条目。8 份历史真实工单每版 1190 行、GAME 2324 / EXTERNAL 56；`java/lang/Object` 不在任何工单 owner 中，却出现在 5 个 tracked demo jar 的类引用面，直接证明成员工单没有覆盖类级链接面。
+
+### 24.2 方案：不改 Java，纯标准库离线审计
+
+`tools/classref.py` 复用 `tools/contract_audit.py` 的 `parse_constant_pool` / `valid_owner` / `is_field_desc` / `is_method_desc` / `owner_namespace`，独立解析每个 `.class` 的 `CONSTANT_Class`（tag 7，含数组描述符归一化）、`NameAndType`（tag 12）与 `MethodType`（tag 16）描述符、`field_info` / `method_info` 描述符里的对象类；对照目标 `decl.tsv` 的 C / S / M / F owner 集合（镜像 `LinkCheck.loadDecl` 把 S 行也加入 `CLASSES`），以及可选 C 改名表。`linkage_spec` 固定为 `JVMS 5.4.3.1`，`claim_policy` 固定为静态类链接、不做运行期声明。分类顺序 `SELF` → `EXTERNAL` → 游戏前缀（在 decl 则 `RESOLVE` / C 改名目标在 decl 才 `RENAME` / 否则 `MISSING`）→ `THIRD_PARTY`；只有显式 `--allow-third-party` 才豁免第三方，否则 `UNCLASSIFIED_REFS` fail-loud。
+
+输出 deterministic JSON + 27 列 CSV + stdout，并强制附 `does NOT mean runtime-compatible; class resolution does NOT prove semantic equivalence`。`CLASSREFS_OK` rc=0、`CLASSREFS_ONLY_OK`（`--coverage-only`）rc=0、`NEEDS_MANUAL` rc=2、`UNSUPPORTED` rc=1；`--decl-sha256` 把 decl 字节与期望摘要绑定，错版 / 坏前缀 / 坏摘要 / 空 jar / 重复 class 条目 / 坏 UTF-8 一律写报告并拒绝。
+
+关键取舍是**不改任何 Java**：`LinkCheck.java` / `LinkGate.java` / `data/refcheck-legacy-golden.json` 274B 黄金、8 份历史工单字节与 `source_sha256`、G25 `regenerated_bytes_match`、G30 `cmp`、`javac` 32 个 class、216 条 `test_refcheck.py` 断言全部保持不变；改任一历史工单会破坏 §21 的 canonical 复现契约。
+
+### 24.3 实测
+
+| 证据 | 结果 |
+| --- | --- |
+| `tools/test_classref.py` | 225 条自包含断言：零网络、零游戏 jar、零官方映射、零第三方二进制、零 javac |
+| `demo/gate/run.sh` G32–G36 | 原 G1–G31 158 断言逐条保留，新增 22 条，共 **36 场景 180 断言** |
+| G33 合成 decl + sha256 绑定 | `CLASSREFS_OK` rc=0，classes=1 / cp=8 / desc=10 / unique=11 / resolve=1 / missing=0 |
+| G34 §23 的 274B 黄金 jar | 成员级 `resolve=2 / missing=0`，类级 `NEEDS_MANUAL` rc=2、`net/minecraft/Thing` 类 `MISSING` |
+| G35 C 改名表 | `RENAME` 仍 `NEEDS_MANUAL` rc=2；`--coverage-only` 得 `CLASSREFS_ONLY_OK` rc=0 但逐条保留 needs_manual=1 |
+| G36 坏 decl 摘要 / 坏 game prefix / 坏 version | `UNSUPPORTED` rc=1，理由 `DECL_DIGEST_MISMATCH` / `BAD_GAME_PREFIX` / `BAD_VERSION` |
+| 5 个 tracked demo jar | `api-v1` / `api-v2` / `api-v2b` 各 4 唯一类；`mcport-runtime` 62 唯一类 / 3 数组；`mod-1.20.1` 11 唯一类 |
+| 全量回归 | javac 32；10 套 Python 回归 1065 断言；`demo/run.sh` 两遍 5 个 tracked jar 可复现；gate 两遍 **36 场景 180 断言**；`real26` 干净 SKIP；`git diff --check` |
+
+`data/classref-summary.csv` 是三次真实 CLI 实跑的 27 列聚合；`classref-README.md` / `classref-spec.example.json` 只含口径与路径占位符。
+
+### 24.4 结论与残余
+
+0.2.5 把「类是否存在」从静默假设变成离线可复核的 fail-loud 证据面，并用同一个 274B 黄金 jar 反证「成员 PASS 不等于类 PASS」。它**不接入** `premain`、**不新增 JVM 层加载器**、不重映射 mod 字节、不扩大 `LinkGate` 的 `PASS` 集合、不执行游戏，也不覆盖反射 / JSON 字符串类名（§17）、运行期 ClassLoader / Mixin / Fabric 行为、资源取值与同名同签名语义漂移（G15 的 42→6 仍是铁证）。`CLASSREFS_OK` 与 `CLASSREFS_ONLY_OK` 都不证明能跑或语义等价。
+
+179 SIGCHG + 423 MISSING 人工缺口、真实客户端 / Fabric / LWJGL / Mixin 端到端、§21.4 源文本固有歧义 3 / 51、静态不可判的语义漂移全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -1748,4 +1785,5 @@ mod jar、2 张目标声明表、2 张映射表上的 audit / rewrite 实跑、4
 §18 来自 `tools/capability.py` / `tools/test_capability.py` 在四版真实声明表、三张 map/bridge、17 份 loader plan、50 份 LinkCheck 工单、2 份 stringsurface 与 2 份 bridgegen 聚合 stats 上的四组闸门实跑与 156 条自包含断言（2026-11-15；50 条 evidence、14584 条引用零坏格式；输入字节、gate / triage / 完整能力清单均不分发，聚合数字见 `data/capability-*.csv`）。
 §21 来自 `tools/capability.py` 的严格 JVMS §4.3 `parse_ref` 修复、`tools/contract_audit.py` / `tools/test_contract_audit.py` 与 `demo/gate/run.sh` G25–G27 在两版 8 份真实 LinkCheck 工单、两份 canonical 契约、一个合成 stub jar 上的实跑（2026-11-16；0 坏描述符、契约字节 74091 / 97115、110 条自包含断言、27 场景 133 断言；输入字节与完整契约不分发，聚合数字见 `data/contract-audit-summary.csv`）。
 §22 来自 `tools/bridgegen.py` / `tools/relocate.py` 委托 `tools/capability.py` 严格 `parse_ref` 的源码改动、`tools/test_parse_unified.py` 与 `demo/gate/run.sh` G28 在两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；每版 1190 行、197 / 1 → 0、零 None、114 条自包含断言、28 场景 136 断言；完整工单外的输入字节不分发，聚合数字见 `data/parse-unified-summary.csv`）。
-§23 来自 `java/mcport/LinkCheck.java` 的 `--refs-json` 结构化输出、`tools/refcheck.py` / `tools/test_refcheck.py` 与 `demo/gate/run.sh` G29–G31 在合成碰撞 fixture、274B 旧 `--json` 黄金字节、含引号 / 反斜杠路径及两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；structured=2 / legacy=2 / ambiguous=2 / resolved=1 / diverged=1、216 条自包含断言、31 场景 158 断言、历史源文本固有歧义 3 / 51 仍留档；合成 jar 与临时报告不分发，聚合数字见 `data/refcheck-summary.csv`）。*
+§23 来自 `java/mcport/LinkCheck.java` 的 `--refs-json` 结构化输出、`tools/refcheck.py` / `tools/test_refcheck.py` 与 `demo/gate/run.sh` G29–G31 在合成碰撞 fixture、274B 旧 `--json` 黄金字节、含引号 / 反斜杠路径及两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；structured=2 / legacy=2 / ambiguous=2 / resolved=1 / diverged=1、216 条自包含断言、31 场景 158 断言、历史源文本固有歧义 3 / 51 仍留档；合成 jar 与临时报告不分发，聚合数字见 `data/refcheck-summary.csv`）。
+§24 来自 `tools/classref.py` / `tools/test_classref.py` 与 `demo/gate/run.sh` G32–G36 在 3 次真实 CLI、274B 黄金 jar、5 个 tracked demo jar 与两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；CONSTANT_Class / 描述符类引用、225 条自包含断言、36 场景 180 断言、G34 证明成员 PASS 而类 MISSING；合成 decl / map 与临时报告不分发，聚合数字见 `data/classref-summary.csv`）。*

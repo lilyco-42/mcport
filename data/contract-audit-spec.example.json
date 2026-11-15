@@ -33,5 +33,27 @@
     "golden": "data/refcheck-legacy-golden.json",
     "regression": "tools/test_refcheck.py",
     "note": "section 23; structured refs remove legacy text ambiguity for new tickets only"
+  },
+  "classref": {
+    "decl": "/work/decl.tsv",
+    "decl_sha256": "64-lowercase-hex-or-empty",
+    "map": "/work/map.tsv",
+    "modjar": "/work/mod.jar",
+    "game_prefixes": [
+      "net/mc/"
+    ],
+    "allow_third_party": false,
+    "coverage_only": false,
+    "out": "/work/classref.json",
+    "summary": "/work/classref.csv",
+    "regression": "tools/test_classref.py",
+    "gate_scenarios": [
+      "G32",
+      "G33",
+      "G34",
+      "G35",
+      "G36"
+    ],
+    "note": "section 24 class-level linkage audit; paths are placeholders"
   }
 }

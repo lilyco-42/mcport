@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20 / §21 / §22 / §23).
+# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20 / §21 / §22 / §23 / §24).
 # 所有产物在 demo/gate/build/（gitignore），不触碰 demo/*.jar tracked 二进制。
 # 固定 jar --date，保证两次运行产物字节一致；mod jar 在所有场景前后 sha1 不变。
 set -e
@@ -399,6 +399,67 @@ ck_has G31_refcheck_ok G31_refcheck out "STRUCTURED_REFS_OK schema=1 structured=
 ck G31_escaped_refs has build/refcheck/weird-refs.json '\"mod\"\\name.jar'
 ck G31_escaped_legacy has build/refcheck/weird-legacy.json '\"mod\"\\name.jar'
 ck_nhas G31_no_bad_json G31_refcheck err "BAD_JSON"
+
+
+echo "== G32. section 24 class-level audit regression (225 self-contained assertions) =="
+run G32_unit python3 ../../tools/test_classref.py
+ck_rc G32_unit_rc_0 G32_unit 0
+ck_has G32_unit_all_ok G32_unit out "RESULT ALL_OK assertions=225"
+ck_nhas G32_unit_no_traceback G32_unit err "Traceback"
+
+echo "== G33. CONSTANT_Class + descriptor types resolve against a bound target decl =="
+mkdir -p build/classref
+printf 'C\tnet/mc/World\n' > build/classref/decl-ok.tsv
+printf 'C\tnet/mc/Api\n' > build/classref/decl-missing.tsv
+printf 'C\tnet/mc/WorldNew\n' > build/classref/decl-rename.tsv
+printf 'C\tnet/mc/World\tnet/mc/WorldNew\n' > build/classref/map-rename.tsv
+CLASSMOD=../../demo/mod-1.20.1.jar
+CR_OK_SHA="$(sha256sum build/classref/decl-ok.tsv | cut -d' ' -f1)"
+run G33_ok python3 ../../tools/classref.py --decl build/classref/decl-ok.tsv --modjar "$CLASSMOD" \
+  --game-prefix net/mc/ --decl-sha256 "$CR_OK_SHA" --version 1.20.1 \
+  --out build/classref/ok.json --summary build/classref/ok.csv
+ck_rc G33_ok_rc_0 G33_ok 0
+ck_has G33_ok_verdict G33_ok out "verdict=CLASSREFS_OK"
+ck_has G33_ok_disclaimer G33_ok out "does NOT mean runtime-compatible"
+ck G33_ok_digest has build/classref/ok.json '"decl_digest_ok": true'
+ck G33_ok_spec has build/classref/ok.json 'JVMS 5.4.3.1'
+
+echo "== G34. member-level PASS jar still fails class-level audit (JVMS 5.4.3.1 blind spot) =="
+run G34_blind python3 ../../tools/classref.py --decl refcheck-decl.tsv \
+  --modjar build/refmod.jar --allow-third-party --out build/classref/blind.json
+ck_rc G34_blind_rc_2 G34_blind 2
+ck_has G34_blind_verdict G34_blind out "verdict=NEEDS_MANUAL"
+ck_has G34_blind_stderr G34_blind err "NEEDS_MANUAL refs=1"
+ck G34_blind_json has build/classref/blind.json '"needs_manual": 1'
+
+echo "== G35. C-rename is reported as manual work; --coverage-only is explicit, not a pass =="
+run G35_rename python3 ../../tools/classref.py --decl build/classref/decl-rename.tsv \
+  --map build/classref/map-rename.tsv --modjar "$CLASSMOD" --game-prefix net/mc/ \
+  --out build/classref/rename.json
+ck_rc G35_rename_rc_2 G35_rename 2
+ck G35_mapped has build/classref/rename.json '"net/mc/WorldNew"'
+run G35_only python3 ../../tools/classref.py --decl build/classref/decl-rename.tsv \
+  --map build/classref/map-rename.tsv --modjar "$CLASSMOD" --game-prefix net/mc/ \
+  --coverage-only --out build/classref/only.json
+ck_rc G35_only_rc_0 G35_only 0
+ck_has G35_only_verdict G35_only out "verdict=CLASSREFS_ONLY_OK"
+ck G35_only_manual has build/classref/only.json '"needs_manual": 1'
+
+echo "== G36. bad digest / bad game prefix / bad version all fail loud =="
+run G36_digest python3 ../../tools/classref.py --decl build/classref/decl-ok.tsv \
+  --modjar "$CLASSMOD" --game-prefix net/mc/ \
+  --decl-sha256 0000000000000000000000000000000000000000000000000000000000000000 \
+  --out build/classref/bad-digest.json
+ck_rc G36_digest_rc_1 G36_digest 1
+ck_has G36_digest_reason G36_digest err "DECL_DIGEST_MISMATCH"
+run G36_prefix python3 ../../tools/classref.py --decl build/classref/decl-ok.tsv \
+  --modjar "$CLASSMOD" --game-prefix 'net.mc/' --out build/classref/bad-prefix.json
+ck_rc G36_prefix_rc_1 G36_prefix 1
+ck_has G36_prefix_reason G36_prefix err "BAD_GAME_PREFIX"
+run G36_version python3 ../../tools/classref.py --decl build/classref/decl-ok.tsv \
+  --modjar "$CLASSMOD" --game-prefix net/mc/ --version '1.20 1' \
+  --out build/classref/bad-version.json
+ck_rc G36_version_rc_1 G36_version 1
 
 echo "GATE_RESULT assertions=$CHECKS OK"
 echo OK
