@@ -1790,6 +1790,39 @@ JVMS §5.4.3.3 / §5.4.3.4 的方法解析会沿父类与 superinterface 递归�
 
 179 SIGCHG + 423 MISSING 人工缺口、真实客户端 / Fabric / LWJGL / Mixin 端到端、§21.4 源文本固有歧义 3 / 51、静态不可判的语义漂移全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
 
+## 26. 方法句柄与注解链接面审计（McPort 0.2.7）
+
+### 26.1 根因：LinkCheck 的 invokedynamic 回调丢弃 bsm/args，classref 与 stringsurface 看不到注解 class 字面量
+
+`java/mcport/LinkCheck.java:356` 的 `visitInvokeDynamicInsn(String n2, String d2, Handle bsm, Object... args)` 只把 `d2` 的描述符类型放进类引用集合，`bsm` 与 `args` 被完全忽略；`analyze()` 又只分类 `mrefs` / `frefs`，`cref` 在 `collect()` 后丢弃。于是 `CONSTANT_MethodHandle`（JVMS 4.4.8 / 5.4.3.5）指向的成员、以及 `CONSTANT_Dynamic` / `CONSTANT_InvokeDynamic`（JVMS 4.7.23 / 5.4.3.6）的 bootstrap 边，不会进入成员工单：一份只含 `Foo::hello` 方法引用的类可以被旧工单报成 `MC refs: 0 method + 0 field = 0`。
+
+`tools/classref.py` 只覆盖 `CONSTANT_Class`、`NameAndType`、`MethodType` 与 field/method 描述符，`tools/stringsurface.py` 只覆盖 `CONSTANT_String`；二者都看不到注解 `element_value` 的 tag `c`。JVMS 4.7.16.1 规定 tag `c` 的 `class_info_index` 指向一个表示 return descriptor 的 `CONSTANT_Utf8`，例如 `@Ann(Foo.class)` 里的 `Lnet/minecraft/Foo;`，它既不产生 tag 7/12/16，也不产生成员指令。这类字面量由 Mixin / refmap 等**框架**在运行期解析，不是 JVM 5.4.3 链接期解析，必须与真正的 MethodHandle 解析边分桶，不能混为一谈。
+
+### 26.2 独立离线审计器
+
+`tools/linkage_surface.py` 是纯标准库离线工具，零新依赖，**不改**任何 Java、既有工具语义、274B 黄金工单、8 份历史工单、canonical 契约、1455 条旧断言与 210 条旧闸门断言。它用严格常量池解析遍历全部 `CONSTANT_MethodHandle`，按 reference_kind 校验 `CONSTANT_Fieldref` / `Methodref` / `InterfaceMethodref` 目标；解析所有动态常量的 `BootstrapMethods` 的 `bootstrap_method_ref` 与 `bootstrap_arguments`，只接受 JVMS 4.4 可加载标签，并把嵌套动态常量单独标记；再遍历 Runtime[In]VisibleAnnotations / ParameterAnnotations / TypeAnnotations / AnnotationDefault 的 `element_value`，递归 tag `@` 与 `[`，提取 tag `c` 的 return descriptor。
+
+输出分成 `LINKAGE` 与 `FRAMEWORK` 两桶：前者按精确 `(owner,name,desc)` 对照目标 decl 与可选 C 改名表，状态为 `RESOLVE` / `RENAME` / `MISSING` / `EXTERNAL` / `THIRD_PARTY` / `SELF`；后者一律记为 `FRAMEWORK_UNRESOLVED`，绝不静默 PASS。动态 bootstrap 因无法静态证明目标行为，写 `DYNAMIC_BOOTSTRAP_UNPROVEN` 并进入人工集合；第三方命名空间默认 `UNCLASSIFIED_REFS`，`--allow-third-party` 只写 `THIRD_PARTY_WAIVED` 且仍 `NEEDS_MANUAL`，除非显式 `--coverage-only`。`--decl-sha256` 绑定声明表字节，坏类文件 / 坏 MethodHandle / 坏 BootstrapMethods / 坏注解均 `UNSUPPORTED` rc=1；确定性 JSON 与 37 列 CSV 失败也落报告。`LINKAGE_SPEC` 明写 `JVMS 5.4.3.5 / 5.4.3.6`，`FRAMEWORK_SPEC` 明写注解 class 字面量由框架解析、不是 JVM 链接期。
+
+### 26.3 实测证据
+
+| 证据 | 结果 |
+| --- | --- |
+| `tools/test_linkage_surface.py` | 511 条自包含断言，覆盖常量池、MethodHandle kind、动态描述符、全部注解属性、Code 嵌套注解、BootstrapMethods、严格错误码、CLI 确定性与失败码 |
+| 本机 javac 17 合成 fixture | `net/minecraft/Foo` 为手写占位类，不是 Mojang 字节；`@Ann(Foo.class)` + `Foo::hello` 编译后 `javap -v` 可见 `Lnet/minecraft/Foo;`、`REF_invokeStatic net/minecraft/Foo.hello:()Ljava/lang/String;` 与 `LambdaMetafactory.metafactory` |
+| 旧 `LinkCheck` 对照 | 同一 jar 输出 `MC refs: 0 method + 0 field = 0`，`--refs-json` 为 `ref_count=0` |
+| 新 `linkage_surface` | `member_refs=2` / `method_handles=2` / `bootstraps=1` / `dynamic=1` / `framework_literals=1`，`verdict=NEEDS_MANUAL`，`DYNAMIC_BOOTSTRAP_UNPROVEN|FRAMEWORK_CLASS_LITERALS`，日志附 `does NOT mean runtime-compatible` |
+| `demo/gate/run.sh` G43–G48 | 保留 G1–G42 的 210 断言，新增 34 条 → **48 场景 244 断言**；G43 单测、G44 旧工具盲区 vs 新工具 `SURFACE_OK`、G45 `FRAMEWORK_UNRESOLVED`、G46 `DYNAMIC_BOOTSTRAP_UNPROVEN`、G47 C 改名连描述符一起映射且 `MAPPED_CLASS` 不静默 PASS、G48 第三方与 coverage-only |
+| 全量回归 | javac 32；12 套 Python 回归 1966 断言（49/27/61/78/158/27/110/114/216/225/390/511）；`demo/run.sh` 两遍可复现；gate 两遍 244 断言；`real26` 干净 SKIP；`git diff --check` |
+
+`data/linkage-surface-summary.csv` / `linkage-surface-README.md` / `linkage-surface-spec.example.json` 只含聚合数字、口径与路径占位符；合成 class / jar、decl / map 与临时 JSON / CSV 不分发。
+
+### 26.4 结论与残余
+
+0.2.7 把「MethodHandle / bootstrap 边与注解 class 字面量是否存在、能否静态对照目标声明」从静默盲区变成离线 fail-loud 证据面，并用真实 javac 17 类文件证明旧 `LinkCheck` 会报零引用而新工具能逐条列出。它**不接入** `premain`、**不新增 JVM 层加载器**、不重映射 mod 字节、不扩大 `LinkGate` 的 `PASS` 集合、不执行游戏；注解 class 字面量是框架解析，永远只做 `FRAMEWORK_UNRESOLVED` 报告，动态 bootstrap 只做 `DYNAMIC_BOOTSTRAP_UNPROVEN` 报告。`SURFACE_OK` / `SURFACE_ONLY_OK` 都不证明能跑或语义等价。
+
+179 SIGCHG + 423 MISSING 人工缺口、真实客户端 / Fabric / LWJGL / Mixin 端到端、§21.4 源文本固有歧义 3 / 51、静态不可判的语义漂移全部不变。**「全平台全版本任意 mod 都能跑」仍不可达**；等效交付仍是「分段适配 + 逐版本能力契约 + 静态 / 启动期 fail-loud 闸门」。
+
 *数据来源：GitHub API（2026-11-14）取仓库健康度；minecraft.wiki 取混淆时间线；
 本机 client jar / intermediary jar / ProGuard 映射取 API 流失；JLS/JVMS SE21 与 JEP 451/457/484 原文取 JVM 层约束；
 Modrinth 官方 API 取 mod 样本与"逐版本构建"事实；§8 的对齐率、引用归因与 Mixin 计数均为本机实测
@@ -1823,4 +1856,5 @@ mod jar、2 张目标声明表、2 张映射表上的 audit / rewrite 实跑、4
 §22 来自 `tools/bridgegen.py` / `tools/relocate.py` 委托 `tools/capability.py` 严格 `parse_ref` 的源码改动、`tools/test_parse_unified.py` 与 `demo/gate/run.sh` G28 在两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；每版 1190 行、197 / 1 → 0、零 None、114 条自包含断言、28 场景 136 断言；完整工单外的输入字节不分发，聚合数字见 `data/parse-unified-summary.csv`）。
 §23 来自 `java/mcport/LinkCheck.java` 的 `--refs-json` 结构化输出、`tools/refcheck.py` / `tools/test_refcheck.py` 与 `demo/gate/run.sh` G29–G31 在合成碰撞 fixture、274B 旧 `--json` 黄金字节、含引号 / 反斜杠路径及两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；structured=2 / legacy=2 / ambiguous=2 / resolved=1 / diverged=1、216 条自包含断言、31 场景 158 断言、历史源文本固有歧义 3 / 51 仍留档；合成 jar 与临时报告不分发，聚合数字见 `data/refcheck-summary.csv`）。
 §24 来自 `tools/classref.py` / `tools/test_classref.py` 与 `demo/gate/run.sh` G32–G36 在 3 次真实 CLI、274B 黄金 jar、5 个 tracked demo jar 与两版 8 份真实 LinkCheck 工单上的实跑（2026-11-16；CONSTANT_Class / 描述符类引用、225 条自包含断言、36 场景 180 断言、G34 证明成员 PASS 而类 MISSING；合成 decl / map 与临时报告不分发，聚合数字见 `data/classref-summary.csv`）。
-§25 来自 `tools/hierarchy.py` / `tools/test_hierarchy.py` 与 `demo/gate/run.sh` G37–G42 在 3 次真实 CLI、两份摘要碰撞 decl、F-only 黄金 decl、8 份真实 LinkCheck 工单与 5 个 tracked demo jar 上的实跑（2026-11-16；C/S/M/F owner 视图差异、capability 摘要碰撞、390 条自包含断言、42 场景 210 断言；合成 decl / map 与临时报告不分发，聚合数字见 `data/hierarchy-summary.csv`）。*
+§25 来自 `tools/hierarchy.py` / `tools/test_hierarchy.py` 与 `demo/gate/run.sh` G37–G42 在 3 次真实 CLI、两份摘要碰撞 decl、F-only 黄金 decl、8 份真实 LinkCheck 工单与 5 个 tracked demo jar 上的实跑（2026-11-16；C/S/M/F owner 视图差异、capability 摘要碰撞、390 条自包含断言、42 场景 210 断言；合成 decl / map 与临时报告不分发，聚合数字见 `data/hierarchy-summary.csv`）。
+§26 来自 `tools/linkage_surface.py` / `tools/test_linkage_surface.py` 与 `demo/gate/run.sh` G43–G48 在 javac 17 合成 `@Ann(Foo.class)` + 方法引用 fixture、旧 `LinkCheck` 对照与 12 套自包含回归上的实跑（2026-11-16；旧工具 `ref_count=0`、新工具 `method_handles=2` / `framework_literals=1` / `NEEDS_MANUAL`、511 条自包含断言、48 场景 244 断言；合成 class / jar 与临时报告不分发，聚合数字见 `data/linkage-surface-summary.csv`）。*

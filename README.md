@@ -248,23 +248,24 @@ python3 tools/capability.py --spec /work/spec.json --out-dir /work/gate
 `data/capability-README.md`，路径模板见 `data/capability-spec.example.json`。
 详见 REPORT §18.6 / §18.9。
 
-## 启动期能力闸门、契约、类级链接面与 decl 继承层审计（REPORT §19 / §20 / §21 / §22 / §23 / §24 / §25）
+## 启动期能力闸门、契约、类级链接面、decl 继承层与方法句柄链接面审计（REPORT §19 / §20 / §21 / §22 / §23 / §24 / §25 / §26）
 
 `LinkGate` 是不改 mod 字节的 `-javaagent`：在 `premain` 用纯 JDK 两遍解析 class 常量池，对照由 `tools/linkgate_contract.py` 从真实 LinkCheck 工单生成的契约，把 `MISSING` / `SIGCHG` 引用在启动前干净拒绝（rc=2、无 native abort）；`RENAME` 只计数，未知引用默认 `RESOLVE`，`warn` 只豁免已知 blocker 不豁免读表失败。§20 把契约 `version` 头绑定到 `-Dmcport.gate.version`，并把空 jar / 冲突状态 / 非法头 / 状态拼写错误全部改为 `FAIL`。两版真实工单各 4 份 / 1190 原始引用 / 1019 唯一引用；26.1 有 68 SIGCHG + 223 MISSING 会阻断。
 
 ```bash
-bash demo/gate/run.sh                          # 42 场景 210 断言，含真实契约 JVM 阻断、类级链接盲区、decl 继承层对账与 42→6 语义漂移铁证
+bash demo/gate/run.sh                          # 48 场景 244 断言，含真实契约 JVM 阻断、类级链接盲区、decl 继承层对账、方法句柄 / 注解链接面与 42→6 语义漂移铁证
 python3 tools/test_linkgate_contract.py        # 27 断言 + 可选真实工单聚合回归
 python3 tools/test_contract_audit.py           # 110 断言，含真实 26.1 工单 canonical 复现
 python3 tools/test_parse_unified.py              # 114 断言，三工具严格解析 + 8 真实工单聚合
 python3 tools/test_refcheck.py                   # 216 断言，结构化引用对账 + 合成碰撞 + 8 真实工单只读
 python3 tools/test_classref.py                   # 225 断言，类级链接面审计 + 常量池 / 描述符 / 5 demo jar 只读
 python3 tools/test_hierarchy.py                  # 390 断言，decl 继承层跨工具对账 + 摘要碰撞 + 8 真实工单只读
+python3 tools/test_linkage_surface.py            # 511 断言，MethodHandle / bootstrap / 注解 class 字面量链接面
 ```
 
 §21 的 `tools/contract_audit.py` 是纯标准库离线审计器：严格校验 canonical 契约头 / 四列 TAB / JVMS 描述符，逐字节复现上游工单，扫描 mod jar 常量池并量化 covered / unknown / unclassified / stale / NEEDS_MANUAL；本轮还修掉 `capability.parse_ref` 的一个真实 SIGCHG 静默放行 bug。
 
-聚合见 `data/linkgate-summary.csv` / `data/contract-audit-summary.csv` / `data/parse-unified-summary.csv` / `data/refcheck-summary.csv` / `data/classref-summary.csv` / `data/hierarchy-summary.csv`，口径见 `data/linkgate-README.md` / `data/contract-audit-README.md` / `data/parse-unified-README.md` / `data/refcheck-README.md` / `data/classref-README.md` / `data/hierarchy-README.md`，路径模板见对应 `*-spec.example.json`。**`PASS` / `COVERAGE_OK` / `CLASSREFS_OK` / `HIERARCHY_OK` 只表示静态链接符号或契约 / 类引用 / 继承层覆盖，不证明能跑或语义一致。**
+聚合见 `data/linkgate-summary.csv` / `data/contract-audit-summary.csv` / `data/parse-unified-summary.csv` / `data/refcheck-summary.csv` / `data/classref-summary.csv` / `data/hierarchy-summary.csv`，口径见 `data/linkgate-README.md` / `data/contract-audit-README.md` / `data/parse-unified-README.md` / `data/refcheck-README.md` / `data/classref-README.md` / `data/hierarchy-README.md`，路径模板见对应 `*-spec.example.json`。**`PASS` / `COVERAGE_OK` / `CLASSREFS_OK` / `HIERARCHY_OK` / `SURFACE_OK` / `SURFACE_ONLY_OK` 只表示静态链接符号或契约 / 类引用 / 继承层 / 方法句柄与注解链接面覆盖，不证明能跑或语义一致。**
 
 §22 把 `bridgegen.py` / `relocate.py` 的 `parse_ref` 委托给 `capability.py` 的唯一严格 JVMS §4.3 解析器；对外四元组形状不变，8 份真实工单的 197 / 1 内部分歧归零，源文本固有歧义 3 / 51 仍留档，统一解析不扩大自动修复集合、不证明运行期语义。
 
@@ -290,6 +291,7 @@ python3 tools/test_parse_unified.py                      # §22 三工具统一�
 python3 tools/test_refcheck.py                           # §23 结构化引用对账 216 断言回归
 python3 tools/test_classref.py                           # §24 类级链接面审计 225 断言回归
 python3 tools/test_hierarchy.py                          # §25 decl 继承层对账 390 断言回归
+python3 tools/test_linkage_surface.py                   # §26 方法句柄 / 注解链接面 511 断言回归
 ```
 
 > **CI 注意**：若 `LANG`/`LC_ALL` 为空，JDK 用 `ANSI_X3.4-1968` 解码路径，中文目录会让 `javac`

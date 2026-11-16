@@ -5,15 +5,15 @@
 | 内容 | 位置 |
 | --- | --- |
 | 源码、文档、测量数据 | GitHub: https://github.com/lilyco-42/mcport |
-| 打包分发件 `mcport-0.2.6-dist.tar.gz` | GitHub Release `v0.2.6` 资产 `https://github.com/lilyco-42/mcport/releases/download/v0.2.6/mcport-0.2.6-dist.tar.gz` |
+| 打包分发件 `mcport-0.2.7-dist.tar.gz` | GitHub Release `v0.2.7` 资产 `https://github.com/lilyco-42/mcport/releases/download/v0.2.7/mcport-0.2.7-dist.tar.gz` |
 | 下载入口 | https://lain42.top/downloads/ → 条目 `mcport`（当前 `mirror.url` 为 GitHub Release 直链，无票据/积分；**不是** R2 加速） |
-| 原定 R2 目标 | 桶 `lain42-dl`，key `downloads/mcport/0.2.6/mcport-0.2.6-dist.tar.gz`；目录对象 `catalog/downloads.json` 仍指向 0.1.8（凭据恢复后补传） |
+| 原定 R2 目标 | 桶 `lain42-dl`，key `downloads/mcport/0.2.7/mcport-0.2.7-dist.tar.gz`；目录对象 `catalog/downloads.json` 仍指向 0.1.8（凭据恢复后补传） |
 
 ## 发布通道状态（2026-11-16）
 
-* R2 发布链被凭据阻塞：远端 `/etc/codex-cf.env` 的 `CF_API_TOKEN` 与本机历史 token 均被 Cloudflare 返回 401；Wrangler OAuth `refresh_token` 交换返回 `invalid_grant`（已撤销）。因此本版仍**没有**上传 R2 对象，也没有改写 R2 `catalog/downloads.json`；站点 0.2.6 条目改走已存在的 GitHub Release 直链通道。
+* R2 发布链被凭据阻塞：远端 `/etc/codex-cf.env` 的 `CF_API_TOKEN` 与本机历史 token 均被 Cloudflare 返回 401；Wrangler OAuth `refresh_token` 交换返回 `invalid_grant`（已撤销）。因此本版仍**没有**上传 R2 对象，也没有改写 R2 `catalog/downloads.json`；站点 0.2.7 条目改走已存在的 GitHub Release 直链通道。
 * 直链是现有页面行为：`mirror` 有 `url` 且无 `slug` 时前端按「GitHub 直链 · 断点续传」展示；它绕过 `dl.lilyco42.top/d/mcport` 的 HMAC 票据、10 积分计费与 Cloudflare R2 加速/Range 代理。此偏差需用户确认，不作为等效加速。
-* 恢复 R2：取得具备 R2 写权限的新 CF API token 或 S3 凭据后，上传上述 tar 到目标 key，把 `catalog/downloads.json` 的 `mcport` 项更新为 0.2.6 的 `name` / `size` / `key`（保持 `slug=mcport`），再把 manifest `mirror.url` 切回 `https://dl.lilyco42.top/d/mcport` 并恢复 `mirror.slug=mcport`；发布前先备份 catalog 与 manifest。Worker / 计费 / 前端均无需改动。
+* 恢复 R2：取得具备 R2 写权限的新 CF API token 或 S3 凭据后，上传上述 tar 到目标 key，把 `catalog/downloads.json` 的 `mcport` 项更新为 0.2.7 的 `name` / `size` / `key`（保持 `slug=mcport`），再把 manifest `mirror.url` 切回 `https://dl.lilyco42.top/d/mcport` 并恢复 `mirror.slug=mcport`；发布前先备份 catalog 与 manifest。Worker / 计费 / 前端均无需改动。
 * 完整性：任何通道下载后都应核对 `mirror.sha256`；`sha256sum -c` 与 `tar tzf` 是发布验收的硬条件。
 
 
@@ -53,14 +53,15 @@
 * §23 的 `java/mcport/LinkCheck.java --refs-json` + `tools/refcheck.py` / `tools/test_refcheck.py` 零外部数据 216 断言全绿；`demo/gate/run.sh` G29–G31 在合成碰撞 fixture、274B 旧 `--json` 黄金字节、含引号 / 反斜杠路径与两版 8 份真实工单上实跑（structured=2 / legacy=2 / ambiguous=2 / resolved=1 / diverged=1、31 场景 158 断言），历史源文本固有歧义 3 / 51 按启发式留档；`data/refcheck-summary.csv` / `refcheck-README.md` / `refcheck-spec.example.json` 仅聚合数字、口径与路径占位符。
 * §24 的 `tools/classref.py` / `tools/test_classref.py` 零外部数据 225 断言全绿；`demo/gate/run.sh` G32–G36 在合成 decl / C 改名表、274B 黄金 jar、5 个 tracked demo jar 与两版 8 份真实工单上实跑（36 场景 180 断言、`CLASSREFS_OK` / `NEEDS_MANUAL` / `UNSUPPORTED`、G34 证明成员 PASS 而类 MISSING）；`data/classref-summary.csv` / `classref-README.md` / `classref-spec.example.json` 仅聚合数字、口径与路径占位符。
 * §25 的 `tools/hierarchy.py` / `tools/test_hierarchy.py` 零外部数据 390 断言全绿；`demo/gate/run.sh` G37–G42 在三次真实 CLI、两份摘要碰撞 decl、F-only 黄金 decl、274B 黄金工单与 8 份真实工单上实跑（42 场景 210 断言、`HIERARCHY_OK` / `HIERARCHY_DIGEST_COLLISION` / `CAPABILITY_DECL_REJECTED` / `DUPLICATE_S_ROWS` / `HIERARCHY_CYCLE`）；`data/hierarchy-summary.csv` / `hierarchy-README.md` / `hierarchy-spec.example.json` 仅聚合数字、口径与路径占位符。
-* §19 / §20 的 `java/mcport/LinkGate.java` + `tools/linkgate_contract.py` 零外部数据 27 断言全绿；`demo/gate/run.sh` 42 场景 210 断言全绿（含 G29–G42 结构化引用对账、类级链接面与 decl 继承层审计）（含真实 26.1 工单契约→JVM premain 阻断合成 stub、语义漂移 42→6、warn 不豁免配置错误，以及 §20 版本绑定 / 空 jar / 冲突契约 / 非法状态与非法头的 fail-loud）；`data/linkgate-summary.csv` 仅聚合数字，完整契约、stub 字节与 mod 二进制均不随包提供。
+* §26 的 `tools/linkage_surface.py` / `tools/test_linkage_surface.py` 零外部数据 511 断言全绿；`demo/gate/run.sh` G43–G48 在 javac 17 合成 `@Ann(Foo.class)` + 方法引用 fixture、旧 `LinkCheck` 对照、C 改名表、第三方 fixture 与空 jar 上实跑（48 场景 244 断言、`SURFACE_OK` / `FRAMEWORK_UNRESOLVED` / `DYNAMIC_BOOTSTRAP_UNPROVEN` / `MAPPED_CLASS` / `THIRD_PARTY_WAIVED`、G44 证明旧工具 `ref_count=0` 而新工具列出 `method_handles=2`）；`data/linkage-surface-summary.csv` / `linkage-surface-README.md` / `linkage-surface-spec.example.json` 仅聚合数字、口径与路径占位符。
+* §19 / §20 的 `java/mcport/LinkGate.java` + `tools/linkgate_contract.py` 零外部数据 27 断言全绿；`demo/gate/run.sh` 48 场景 244 断言全绿（含 G29–G48 结构化引用对账、类级链接面、decl 继承层与方法句柄 / 注解链接面审计）（含真实 26.1 工单契约→JVM premain 阻断合成 stub、语义漂移 42→6、warn 不豁免配置错误，以及 §20 版本绑定 / 空 jar / 冲突契约 / 非法状态与非法头的 fail-loud）；`data/linkgate-summary.csv` 仅聚合数字，完整契约、stub 字节与 mod 二进制均不随包提供。
 * §18 的 `tools/test_capability.py` 零外部数据 158 断言全绿；`tools/capability.py` 在
   四版真实声明表、三张 map/bridge、17 份 loader plan、50 份 LinkCheck 工单、2 份
   stringsurface 与 2 份 bridgegen 聚合 stats 上跑出 clean / manual / poison / full 四组闸门
   （`READY` / `NEEDS_MANUAL` / `UNSUPPORTED` / `UNSUPPORTED`）；`data/capability-*.csv`
   仅聚合数字，gate / triage / 完整能力清单均不随包提供。
 
-## 边界（务必阅读 REPORT.md §7 / §12 / §13 / §14 / §15 / §16 / §17 / §18 / §19 / §20 / §21 / §22 / §23 / §24 / §25）
+## 边界（务必阅读 REPORT.md §7 / §12 / §13 / §14 / §15 / §16 / §17 / §18 / §19 / §20 / §21 / §22 / §23 / §24 / §25 / §26）
 
 静态符号可解析率 **不等于** 能在真实客户端运行。同名同签名语义漂移无法被
 静态工具**彻底**判定（demo E2 用 42→6 实测展示；§13 给出 4.6%–14.2% 的可检测下界，
@@ -89,9 +90,10 @@ HostBridge 只解决「旧签名能链接上」这一机械层，`<init>`、已�
 §23 只让**新工单**可从源头输出精确 `(kind,owner,name,desc,status)` 并用 multiset 对账消解文本歧义；普通 `--json` 字节不变，8 份历史真实工单的 3 / 51 条源文本歧义不能追溯改写，仍按启发式留档。`STRUCTURED_REFS_OK` 不证明运行期兼容或语义等价，不重映射、不新增 JVM 层加载器、不扩大 `PASS` / 自动修复集合，G15 的 42→6 仍是铁证。
 §24 只补**离线静态类级链接面**：`CONSTANT_Class`（JVMS 5.4.3.1）与描述符对象类的 `RESOLVE` / `RENAME` / `MISSING` 分类、decl 摘要绑定、第三方与空 jar fail-loud；它不接入 `premain`、不新增 JVM 层加载器、不重映射 mod 字节、不扩大 `PASS` 集合、不执行游戏、不覆盖反射 / JSON 字符串类名与运行期 ClassLoader / Mixin / Fabric 行为。G34 用 274B 黄金 jar 证明成员 PASS 不等于类 PASS；`CLASSREFS_OK` 不证明运行期兼容或语义等价，G15 的 42→6 仍是铁证。179 SIGCHG + 423 MISSING 人工缺口、真实客户端端到端、源文本固有歧义 3 / 51 仍不变。
 §25 只补**离线静态 decl 继承层对账**：C/S/M/F owner 三工具视图、显式 S 行父类 / 接口目标、`HIERARCHY_DIGEST_COLLISION`、重复 / 冲突 S 行、环、decl 摘要绑定与第三方显式豁免；它不改 `capability.py` 的 C-only 语义与 C/M/F digest、不接入 `premain`、不新增 JVM 层加载器、不重映射 mod 字节、不扩大 `PASS` 集合、不执行游戏、不覆盖无 S 行时隐含的 `java/lang/Object`、反射 / JSON 字符串类名与运行期 ClassLoader / Mixin / Fabric 行为。G40 用 F-only 黄金 decl 证明 capability 视图拒绝而 LinkCheck/classref 接受；`HIERARCHY_OK` 不证明运行期兼容或语义等价，G15 的 42→6 仍是铁证。179 SIGCHG + 423 MISSING 人工缺口、真实客户端端到端、源文本固有歧义 3 / 51 仍不变。
+§26 只补**离线静态 MethodHandle / bootstrap / 注解 class 字面量链接面**：JVMS 5.4.3.5 / 5.4.3.6 的精确成员解析边与 JVMS 4.7.16.1 的框架解析字面量严格分桶；它不改任何 Java、既有工具、工单或映射字节、不接入 `premain`、不新增 JVM 层加载器、不重映射 mod 字节、不扩大 `PASS` 集合、不执行游戏、不覆盖反射 / JSON 字符串里未在注解出现的类名与运行期 ClassLoader / Mixin / Fabric 行为。动态 bootstrap 只证明边存在，不证明 bootstrap 行为正确；注解 class 字面量只做框架层人工复核报告。`SURFACE_OK` / `SURFACE_ONLY_OK` 不证明运行期兼容或语义等价，G15 的 42→6 仍是铁证。179 SIGCHG + 423 MISSING 人工缺口、真实客户端端到端、源文本固有歧义 3 / 51 仍不变。
 本工具不做「任意版本都有效」或「全平台全版本任意 mod 都能跑」的承诺。
 
 ## 回滚
 
-站点条目在 `/var/www/studio/downloads/manifest.json`；0.2.6 发布前留有
-`.bak-mcport-026-*` 备份（含 0.2.5 / GitHub 直链条目，另有 `.bak-mcport-025-*` / `.bak-mcport-024-*` / `.bak-mcport-023-*` / `.bak-mcport-022-*` 等更早备份），更早还有 `.bak-mcport-020-*` / `.bak-mcport-019-*` / `.bak-mcport-018-*`。回滚时把 `mcport` 条目恢复为对应备份，并把 GitHub Release `v0.2.6` 标为草稿或删除资产；R2 `catalog/downloads.json` 本版未改写，无需回滚。待 R2 写凭据恢复后按上一节补传并统一切换。
+站点条目在 `/var/www/studio/downloads/manifest.json`；0.2.7 发布前留有
+`.bak-mcport-027-*` 备份（含 0.2.6 / GitHub 直链条目，另有 `.bak-mcport-026-*` / `.bak-mcport-025-*` / `.bak-mcport-024-*` 等更早备份），更早还有 `.bak-mcport-020-*` / `.bak-mcport-019-*` / `.bak-mcport-018-*`。回滚时把 `mcport` 条目恢复为对应备份，并把 GitHub Release `v0.2.7` 标为草稿或删除资产；R2 `catalog/downloads.json` 本版未改写，无需回滚。待 R2 写凭据恢复后按上一节补传并统一切换。

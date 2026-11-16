@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20 / §21 / §22 / §23 / §24 / §25).
+# LinkGate 启动期能力闸门端到端实验 (REPORT §19 / §20 / §21 / §22 / §23 / §24 / §25 / §26).
 # 所有产物在 demo/gate/build/（gitignore），不触碰 demo/*.jar tracked 二进制。
 # 固定 jar --date，保证两次运行产物字节一致；mod jar 在所有场景前后 sha1 不变。
 set -e
@@ -538,6 +538,85 @@ ck_has G42_third_waived_reason G42_third_waived err "THIRD_PARTY_WAIVED"
 run G42_third_only python3 ../../tools/hierarchy.py --decl build/hierarchy/third.tsv --allow-third-party --coverage-only --out build/hierarchy/third-only.json
 ck_rc G42_third_only_rc_0 G42_third_only 0
 ck_has G42_third_only_verdict G42_third_only out "verdict=HIERARCHY_ONLY_OK"
+
+mkdir -p build/linkage_surface
+python3 linkage_fixtures.py build/linkage_surface
+export PYTHONHASHSEED=0
+run G43_unit python3 ../../tools/test_linkage_surface.py
+ck_rc G43_unit_rc_0 G43_unit 0
+ck_has G43_unit_all_ok G43_unit out "RESULT ALL_OK assertions=511"
+ck_nhas G43_unit_no_traceback G43_unit err "Traceback"
+
+rm -rf build/linkcheck && mkdir -p build/linkcheck
+$JAVAC -nowarn -cp "../../lib/*" -d build/linkcheck ../../java/mcport/LinkCheck.java ../../java/mcport/Mapping.java
+run G44_linkcheck_blind "$JAVA" -cp "build/linkcheck:../../lib/*" mcport.LinkCheck \
+  --decl build/linkage_surface/decl.tsv --mod build/linkage_surface/good.jar \
+  --json build/linkage_surface/lc.json --refs-json build/linkage_surface/lc-refs.json
+ck_rc G44_linkcheck_rc_0 G44_linkcheck_blind 0
+ck_has G44_linkcheck_zero G44_linkcheck_blind out "MC refs: 0 method + 0 field = 0"
+ck G44_legacy_refs_empty has build/linkage_surface/lc-refs.json '"ref_count":0'
+DECL_SHA="$(sha256sum build/linkage_surface/decl.tsv | cut -d' ' -f1)"
+run G44_surface python3 ../../tools/linkage_surface.py \
+  --decl build/linkage_surface/decl.tsv --modjar build/linkage_surface/good.jar \
+  --version 1.20.1 --decl-sha256 "$DECL_SHA" \
+  --out build/linkage_surface/good.json --summary build/linkage_surface/good.csv
+ck_rc G44_surface_rc_0 G44_surface 0
+ck_has G44_surface_ok G44_surface out "verdict=SURFACE_OK"
+ck_has G44_surface_disclaimer G44_surface out "does NOT mean runtime-compatible"
+ck G44_surface_ref has build/linkage_surface/good.json "METHOD_HANDLE"
+ck G44_surface_map has build/linkage_surface/good.json '"mapped_owner": ""'
+
+echo "== G45. annotation element_value class literal is FRAMEWORK_UNRESOLVED, never PASS =="
+run G45_framework python3 ../../tools/linkage_surface.py \
+  --decl build/linkage_surface/decl.tsv --modjar build/linkage_surface/framework.jar \
+  --out build/linkage_surface/framework.json
+ck_rc G45_framework_rc_2 G45_framework 2
+ck_has G45_framework_reason G45_framework err "FRAMEWORK_CLASS_LITERALS"
+ck G45_framework_literal has build/linkage_surface/framework.json "Lnet/minecraft/Foo;"
+ck G45_framework_bucket has build/linkage_surface/framework.json '"bucket": "FRAMEWORK"'
+ck G45_framework_status has build/linkage_surface/framework.json '"status": "FRAMEWORK_UNRESOLVED"'
+ck G45_framework_spec has build/linkage_surface/framework.json "JVMS 4.7.16.1 class literals are framework-resolved"
+
+echo "== G46. InvokeDynamic bootstrap edge is a distinct JVMS 5.4.3.6 surface =="
+run G46_dynamic python3 ../../tools/linkage_surface.py \
+  --decl build/linkage_surface/decl.tsv --modjar build/linkage_surface/dynamic.jar \
+  --out build/linkage_surface/dynamic.json
+ck_rc G46_dynamic_rc_2 G46_dynamic 2
+ck_has G46_dynamic_reason G46_dynamic err "DYNAMIC_BOOTSTRAP_UNPROVEN"
+ck G46_dynamic_boot has build/linkage_surface/dynamic.json '"bootstrap_methods": 1'
+ck G46_dynamic_const has build/linkage_surface/dynamic.json '"dynamic_constants": 1'
+ck G46_dynamic_ref has build/linkage_surface/dynamic.json "M|java/lang/invoke/Boot|boot|()V"
+
+echo "== G47. C-rename maps descriptors and MAPPED_CLASS is not silently PASS =="
+run G47_rename python3 ../../tools/linkage_surface.py \
+  --decl build/linkage_surface/decl2.tsv --map build/linkage_surface/map.tsv \
+  --modjar build/linkage_surface/rename.jar --out build/linkage_surface/rename.json
+ck_rc G47_rename_rc_2 G47_rename 2
+ck_has G47_rename_reason G47_rename err "MAPPED_CLASS"
+ck G47_rename_mapped has build/linkage_surface/rename.json '"mapped_desc": "(Lnet/minecraft/B;)V"'
+ck G47_rename_owner has build/linkage_surface/rename.json '"mapped_owner": "net/minecraft/B"'
+run G47_empty python3 ../../tools/linkage_surface.py \
+  --decl build/linkage_surface/decl.tsv --modjar build/linkage_surface/empty.jar \
+  --out build/linkage_surface/empty.json
+ck_rc G47_empty_rc_1 G47_empty 1
+ck_has G47_empty_reason G47_empty err "NO_SURFACE_REFS"
+
+echo "== G48. third-party namespace is never silently stable =="
+run G48_third python3 ../../tools/linkage_surface.py \
+  --decl build/linkage_surface/decl.tsv --modjar build/linkage_surface/third.jar \
+  --out build/linkage_surface/third.json
+ck_rc G48_third_rc_1 G48_third 1
+ck_has G48_third_reason G48_third err "UNCLASSIFIED_REFS"
+run G48_waived python3 ../../tools/linkage_surface.py \
+  --decl build/linkage_surface/decl.tsv --modjar build/linkage_surface/third.jar \
+  --allow-third-party --out build/linkage_surface/third-waive.json
+ck_rc G48_waived_rc_2 G48_waived 2
+ck_has G48_waived_reason G48_waived err "THIRD_PARTY_WAIVED"
+run G48_only python3 ../../tools/linkage_surface.py \
+  --decl build/linkage_surface/decl.tsv --modjar build/linkage_surface/third.jar \
+  --allow-third-party --coverage-only --out build/linkage_surface/third-only.json
+ck_rc G48_only_rc_0 G48_only 0
+ck_has G48_only_verdict G48_only out "verdict=SURFACE_ONLY_OK"
 
 echo "GATE_RESULT assertions=$CHECKS OK"
 echo OK

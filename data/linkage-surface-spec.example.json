@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "tool": "mcport.linkage_surface",
+  "command": [
+    "python3",
+    "tools/linkage_surface.py",
+    "--decl",
+    "decl.tsv",
+    "--modjar",
+    "mod.jar",
+    "--version",
+    "1.20.1",
+    "--out",
+    "surface.json",
+    "--summary",
+    "surface.csv"
+  ],
+  "inputs": {
+    "decl": "tab-separated C/S/M/F rows; C owner, S owner plus optional parent/interfaces, M/F owner/name/descriptor",
+    "modjar": "a JAR containing .class entries",
+    "map": "optional tab-separated C old-owner new-owner rows"
+  },
+  "outputs": {
+    "json": "deterministic full report with linkage and framework buckets",
+    "csv": "one deterministic row using the 37-column header"
+  },
+  "verdicts": {
+    "SURFACE_OK": 0,
+    "SURFACE_ONLY_OK": 0,
+    "NEEDS_MANUAL": 2,
+    "UNSUPPORTED": 1
+  },
+  "claim": "static-linkage-surface-only; no runtime claim",
+  "specs": {
+    "linkage": "JVMS 5.4.3.5 / 5.4.3.6",
+    "framework": "JVMS 4.7.16.1 class literals are framework-resolved, NOT JVMS link-time"
+  }
+}
